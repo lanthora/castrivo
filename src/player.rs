@@ -143,6 +143,7 @@ pub fn run(
     let mut redraw = true;
     let mut last_update = std::time::Instant::now();
     let mut displayed_status = None;
+    let system_theme = crate::theme::SystemTheme::new();
     let mut controls = crate::controls::Controls::default();
     while !*shutdown.borrow() {
         while let Ok(request) = commands.try_recv() {
@@ -336,10 +337,15 @@ pub fn run(
             }
             last_update = std::time::Instant::now();
         }
+        let theme = system_theme.current();
         let status = format!(
             "{}{}",
-            crate::ui::overlay(&state, name),
-            controls.overlay(&state, window.fullscreen_state() != FullscreenType::Off)
+            crate::ui::overlay(&state, name, theme),
+            controls.overlay(
+                &state,
+                window.fullscreen_state() != FullscreenType::Off,
+                theme
+            )
         );
         if displayed_status.as_ref() != Some(&status) {
             mpv.command("osd-overlay", &["100", "ass-events", &status, "960", "540"])?;
@@ -510,13 +516,13 @@ mod tests {
             metadata: "private media metadata".into(),
             ..Snapshot::default()
         };
-        let waiting = overlay(&state, "Living room");
+        let waiting = overlay(&state, "Living room", crate::theme::Theme::Dark);
         assert!(waiting.contains("Living room"));
         assert!(!waiting.contains("private"));
         state.state = "PLAYING";
-        assert!(overlay(&state, "Living room").is_empty());
+        assert!(overlay(&state, "Living room", crate::theme::Theme::Dark).is_empty());
         state.error = true;
-        let message = overlay(&state, "Living room");
+        let message = overlay(&state, "Living room", crate::theme::Theme::Dark);
         assert!(!message.is_empty());
         assert!(!message.contains("private"));
     }

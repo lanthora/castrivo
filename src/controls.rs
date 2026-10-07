@@ -101,15 +101,21 @@ impl Controls {
             Target::Fullscreen => Action::Fullscreen,
         })
     }
-    pub fn overlay(&self, state: &Snapshot, fullscreen: bool) -> String {
+    pub fn overlay(
+        &self,
+        state: &Snapshot,
+        fullscreen: bool,
+        theme: crate::theme::Theme,
+    ) -> String {
         if !self.visible(state) {
             return String::new();
         }
+        let palette = theme.palette();
         let mut out = String::new();
         // A stack of translucent strips provides a soft gradient without textures.
         for y in (400..540).step_by(4) {
             let alpha = 255 - ((y - 400) as f64 / 140. * 190.) as u8;
-            rect(&mut out, 0., y as f64, 960., 4., "000000", alpha);
+            rect(&mut out, 0., y as f64, 960., 4., palette.gradient, alpha);
         }
         let hovered = self.hit();
         let seek_hover = hovered == Some(Target::Seek) || self.drag == Some(Target::Seek);
@@ -127,7 +133,7 @@ impl Controls {
             449. - thickness / 2.,
             904.,
             thickness,
-            "FFFFFF",
+            palette.track,
             160,
         );
         rect(
@@ -136,17 +142,28 @@ impl Controls {
             449. - thickness / 2.,
             904. * fraction,
             thickness,
-            "BFD485",
+            palette.accent,
             0,
         );
         if seek_hover && state.seekable {
-            circle(&mut out, 28. + 904. * fraction, 449., 6., "BFD485");
+            circle(&mut out, 28. + 904. * fraction, 449., 6., palette.accent);
+            let tooltip_x = (28. + 904. * fraction).clamp(60., 900.);
+            rect(
+                &mut out,
+                tooltip_x - 36.,
+                410.,
+                72.,
+                24.,
+                palette.background,
+                0,
+            );
             text(
                 &mut out,
-                (28. + 904. * fraction).clamp(60., 900.),
+                tooltip_x,
                 422.,
                 &clock(fraction * state.duration),
                 13,
+                palette.foreground,
             );
         }
         for (target, x) in [
@@ -155,14 +172,20 @@ impl Controls {
             (Target::Fullscreen, 910.),
         ] {
             if hovered == Some(target) {
-                circle(&mut out, x, 501., 21., "403830");
+                circle(&mut out, x, 501., 21., palette.hover);
             }
         }
         if state.state == "PAUSED_PLAYBACK" {
-            path(&mut out, 43., 490., "m 0 0 l 0 22 l 18 11", "F4EDE8");
+            path(
+                &mut out,
+                43.,
+                490.,
+                "m 0 0 l 0 22 l 18 11",
+                palette.foreground,
+            );
         } else {
-            rect(&mut out, 42., 490., 5., 22., "F4EDE8", 0);
-            rect(&mut out, 53., 490., 5., 22., "F4EDE8", 0);
+            rect(&mut out, 42., 490., 5., 22., palette.foreground, 0);
+            rect(&mut out, 53., 490., 5., 22., palette.foreground, 0);
         }
         text_left(
             &mut out,
@@ -170,13 +193,14 @@ impl Controls {
             501.,
             &format!("{}  /  {}", clock(state.position), clock(state.duration)),
             14,
+            palette.foreground,
         );
         path(
             &mut out,
             718.,
             491.,
             "m 0 6 l 5 6 l 12 0 l 12 20 l 5 14 l 0 14",
-            "F4EDE8",
+            palette.foreground,
         );
         if state.mute {
             path(
@@ -184,25 +208,25 @@ impl Controls {
                 733.,
                 495.,
                 "m 0 0 l 2 0 l 10 12 l 8 12 m 8 0 l 10 0 l 2 12 l 0 12",
-                "BFD485",
+                palette.accent,
             );
         } else {
-            rect(&mut out, 734., 495., 2., 12., "F4EDE8", 0);
+            rect(&mut out, 734., 495., 2., 12., palette.foreground, 0);
         }
-        rect(&mut out, 764., 500., 92., 2., "FFFFFF", 160);
+        rect(&mut out, 764., 500., 92., 2., palette.track, 160);
         let volume = if state.mute {
             0.
         } else {
             f64::from(state.volume) / 100.
         };
-        rect(&mut out, 764., 500., 92. * volume, 2., "BFD485", 0);
-        circle(&mut out, 764. + 92. * volume, 501., 4., "F4EDE8");
+        rect(&mut out, 764., 500., 92. * volume, 2., palette.accent, 0);
+        circle(&mut out, 764. + 92. * volume, 501., 4., palette.foreground);
         let shape = if fullscreen {
             "m 0 6 l 6 6 l 6 0 l 8 0 l 8 8 l 0 8 m 14 0 l 16 0 l 16 6 l 22 6 l 22 8 l 14 8 m 0 14 l 8 14 l 8 22 l 6 22 l 6 16 l 0 16 m 14 14 l 22 14 l 22 16 l 16 16 l 16 22 l 14 22"
         } else {
             "m 0 0 l 8 0 l 8 2 l 2 2 l 2 8 l 0 8 m 14 0 l 22 0 l 22 8 l 20 8 l 20 2 l 14 2 m 0 14 l 2 14 l 2 20 l 8 20 l 8 22 l 0 22 m 20 14 l 22 14 l 22 22 l 14 22 l 14 20 l 20 20"
         };
-        path(&mut out, 899., 490., shape, "F4EDE8");
+        path(&mut out, 899., 490., shape, palette.foreground);
         out
     }
 }
@@ -255,16 +279,16 @@ fn circle(out: &mut String, x: f64, y: f64, r: f64, color: &str) {
         color,
     );
 }
-fn text(out: &mut String, x: f64, y: f64, value: &str, size: u8) {
+fn text(out: &mut String, x: f64, y: f64, value: &str, size: u8, color: &str) {
     let _ = writeln!(
         out,
-        r"{{\an5\pos({x},{y})\fnArial\fs{size}\bord0\shad0\1c&HF4EDE8&}}{value}"
+        r"{{\an5\pos({x},{y})\fnArial\fs{size}\bord0\shad0\1c&H{color}&}}{value}"
     );
 }
-fn text_left(out: &mut String, x: f64, y: f64, value: &str, size: u8) {
+fn text_left(out: &mut String, x: f64, y: f64, value: &str, size: u8, color: &str) {
     let _ = writeln!(
         out,
-        r"{{\an4\pos({x},{y})\fnArial\fs{size}\bord0\shad0\1c&HF4EDE8&}}{value}"
+        r"{{\an4\pos({x},{y})\fnArial\fs{size}\bord0\shad0\1c&H{color}&}}{value}"
     );
 }
 

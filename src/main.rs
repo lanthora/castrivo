@@ -3,6 +3,7 @@ mod discovery;
 mod logging;
 mod player;
 mod protocol;
+mod theme;
 mod ui;
 
 use anyhow::{Context, Result};
