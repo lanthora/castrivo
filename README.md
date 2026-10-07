@@ -1,5 +1,7 @@
 # Castrivo
 
+[简体中文](README.zh-CN.md)
+
 Cast videos to your desktop.
 
 Open Castrivo, choose it from a compatible video app's casting menu, and watch on your computer. No separate player is required.
