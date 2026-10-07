@@ -209,13 +209,7 @@ pub fn run(
                     repeat: false,
                     ..
                 } => {
-                    let mode = if window.fullscreen_state() == FullscreenType::Off {
-                        FullscreenType::Desktop
-                    } else {
-                        FullscreenType::Off
-                    };
-                    window.set_fullscreen(mode).map_err(anyhow::Error::msg)?;
-                    mpv.set_property("fullscreen", mode != FullscreenType::Off)?;
+                    toggle_fullscreen(&mut window)?;
                     redraw = true;
                 }
                 Event::KeyDown {
@@ -249,8 +243,11 @@ pub fn run(
                     }
                 }
                 Event::MouseMotion { x, y, .. } => {
-                    if let Some(action) = controls.motion(x, y, window.size(), &state) {
-                        control_action(&mpv, &mut state, action)?;
+                    if let Some(action) = controls.motion(x, y, window.size(), &state)
+                        && control_action(&mpv, &mut state, action)?
+                    {
+                        toggle_fullscreen(&mut window)?;
+                        redraw = true;
                     }
                 }
                 Event::MouseButtonDown {
@@ -262,7 +259,10 @@ pub fn run(
                     controls.motion(x, y, window.size(), &state);
                     if let Some(action) = controls.down(&state) {
                         tracing::info!(?action, "Playback control activated");
-                        control_action(&mpv, &mut state, action)?;
+                        if control_action(&mpv, &mut state, action)? {
+                            toggle_fullscreen(&mut window)?;
+                            redraw = true;
+                        }
                     }
                 }
                 Event::MouseButtonUp {
@@ -322,18 +322,6 @@ pub fn run(
             }
             if *snapshot.borrow() != state {
                 snapshot.send_replace(state.clone());
-            }
-            // Control requests target mpv; SDL owns the actual window.
-            let fullscreen = mpv.get_property::<bool>("fullscreen").unwrap_or(false);
-            if fullscreen != (window.fullscreen_state() != FullscreenType::Off) {
-                window
-                    .set_fullscreen(if fullscreen {
-                        FullscreenType::Desktop
-                    } else {
-                        FullscreenType::Off
-                    })
-                    .map_err(anyhow::Error::msg)?;
-                redraw = true;
             }
             last_update = std::time::Instant::now();
         }
@@ -438,7 +426,22 @@ fn refresh(mpv: &Mpv, state: &mut Snapshot) {
     state.mute = mpv.get_property("mute").unwrap_or(false);
 }
 
-fn control_action(mpv: &Mpv, state: &mut Snapshot, action: crate::controls::Action) -> Result<()> {
+fn toggle_fullscreen(window: &mut sdl2::video::Window) -> Result<()> {
+    let mode = if window.fullscreen_state() == FullscreenType::Off {
+        FullscreenType::Desktop
+    } else {
+        FullscreenType::Off
+    };
+    tracing::info!(?mode, "Toggling window fullscreen");
+    window.set_fullscreen(mode).map_err(anyhow::Error::msg)
+}
+
+// Return a window action; libmpv never controls the native window state.
+fn control_action(
+    mpv: &Mpv,
+    state: &mut Snapshot,
+    action: crate::controls::Action,
+) -> Result<bool> {
     use crate::controls::Action;
     match action {
         Action::TogglePause => {
@@ -450,12 +453,10 @@ fn control_action(mpv: &Mpv, state: &mut Snapshot, action: crate::controls::Acti
             apply(mpv, state, Command::Mute(false))?;
         }
         Action::ToggleMute => apply(mpv, state, Command::Mute(!state.mute))?,
-        Action::Fullscreen => {
-            mpv.command("cycle", &["fullscreen"])?;
-        }
+        Action::Fullscreen => return Ok(true),
     }
     refresh(mpv, state);
-    Ok(())
+    Ok(false)
 }
 fn release_input(mpv: &Mpv) -> Result<()> {
     // mpv 0.41 dereferences a null argument when keyup's optional name is omitted.
@@ -487,8 +488,8 @@ mod tests {
         mpv.set_property("pause", false).unwrap();
         control_action(&mpv, &mut state, Action::TogglePause).unwrap();
         assert!(mpv.get_property::<bool>("pause").unwrap());
-        control_action(&mpv, &mut state, Action::Fullscreen).unwrap();
-        assert!(mpv.get_property::<bool>("fullscreen").unwrap());
+        assert!(control_action(&mpv, &mut state, Action::Fullscreen).unwrap());
+        assert!(!mpv.get_property::<bool>("fullscreen").unwrap());
     }
 
     #[test]
