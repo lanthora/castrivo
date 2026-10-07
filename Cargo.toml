@@ -1,0 +1,25 @@
+[package]
+name = "castrivo"
+version = "0.1.0"
+edition = "2024"
+description = "A desktop video casting receiver"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+libmpv2 = "6"
+sdl2 = { version = "0.38", features = ["use-pkgconfig"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "signal", "macros"] }
+local-ip-address = "0.6"
+hostname = "0.4"
+uuid = { version = "1", features = ["v4", "v5"] }
+roxmltree = "0.20"
+quick-xml = "0.37"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+socket2 = { version = "0.5", features = ["all"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+pkg-config = "0.3"

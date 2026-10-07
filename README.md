@@ -2,11 +2,13 @@
 
 Turn your desktop into a video casting receiver.
 
-Castrivo is a planned Rust desktop application that lets compatible video apps send video to a computer as if it were a TV. Choose a video on your phone, select Castrivo from the app's casting menu, and watch it on your desktop.
+Castrivo is a Rust desktop application in early development that lets compatible video apps send video to a computer as if it were a TV. Choose a video on your phone, select Castrivo from the app's casting menu, and watch it on your desktop.
 
 ## Project status
 
-This repository currently contains the project README only. No application code, build configuration, or working receiver has been implemented. The immediate goal is a minimal feasibility prototype. First-release features remain longer-term goals, not requirements for that prototype.
+A runnable Rust receiver now implements SSDP discovery, UPnP service descriptions, SOAP playback controls, GENA subscriptions, and in-process video playback through SDL2 and libmpv2. It is an early implementation, not a released or certified DLNA device.
+
+Automated controller tests on the development host have exercised discovery, playback from a public HTTPS sample and a local HTTP video with audio, pause/resume, seek, volume/mute, media replacement, stop/replay, SOAP faults, subscription renewal, state events, and unsubscribe. These tests establish protocol-to-player operation, not compatibility with actual iQIYI or Bilibili phone apps. Visual and audible output still requires confirmation on an unlocked desktop. Windows, Linux, and packaged distribution remain unverified.
 
 ## Language
 
@@ -69,8 +71,8 @@ Application logic, networking, and protocol handling will be implemented in Rust
 | Graphics context | SDL2 OpenGL context, integrated with the libmpv Render API |
 | Desktop controls | Video window, fullscreen, and a small set of keyboard shortcuts; no GUI widget framework in the first release |
 | Async networking | Tokio for network I/O, timers, and background tasks |
-| Device discovery | SSDP discovery responses and device advertisements on the selected interface |
-| Receiver protocol | Prefer a reusable DLNA MediaRenderer library for descriptions, SOAP, and GENA; library selection pending |
+| Device discovery | Small socket2/Tokio SSDP layer with multicast advertisements and targeted/all-device search responses |
+| Receiver protocol | Axum HTTP, library-based XML parsing, declarative service descriptions, SOAP handlers, and GENA subscriptions; receiver-library reuse audit recorded below |
 | Playback services | AVTransport, RenderingControl, and ConnectionManager |
 | Media playback | libmpv2 wrapping in-process libmpv Client API and Render API; thin application adapter |
 | Session management | Ordered commands, latest casting request replaces media; libmpv is the playback-state source |
@@ -131,13 +133,13 @@ The intended desktop platforms are macOS, Windows, and Linux. Include both X11 a
 5. **Desktop experience:** add receiver configuration, playback controls, fullscreen, and actionable errors on the existing playback foundation. Keep the first release limited to shortcuts and terminal configuration; consider widgets only for later demonstrated needs.
 6. **Compatibility and distribution:** publish measured app compatibility and validate platform packages and native dependency licensing.
 
-## Remaining implementation decisions
+## Implementation decisions and remaining validation
 
-The architecture and behavior above are accepted. Remaining choices are implementation details or outcomes that require evidence:
+The architecture and behavior above are accepted. Remaining details are decided during implementation and recorded here; no separate approval is required for routine choices:
 
-- **Receiver library:** identify and review a reusable DLNA MediaRenderer implementation; document any missing services or events. If none is suitable, justify the smallest necessary custom implementation.
-- **Dependency versions and native artifacts:** select compatible stable SDL2, libmpv2, and libmpv versions, existing native build tools or artifacts, and per-platform package layouts. Dynamic linking and bundled release dependencies are already decided.
-- **Network defaults:** determine the automatic interface-selection rule, default HTTP port, and stable device identity mechanism. Keep configuration to command-line options with defaults initially.
+- **Receiver reuse review:** `dlna-dmr` 0.1.3 lacks GENA subscription handling, leaves ConnectionManager as a placeholder, and has discovery advertisement/search inconsistencies. `tokio-ssdp` 0.1.0 lacks `ssdp:all` handling and has multicast/shutdown issues; the inspected `cotton-ssdp` implementation uses Unix/Linux-specific networking APIs. None was adopted as the common cross-platform receiver. The current implementation uses existing Axum, XML, socket, and Tokio libraries with a small SSDP layer, declarative service schemas, and protocol-to-player handlers. Reconsider a receiver library if a suitable implementation becomes available.
+- **Dependency versions and native artifacts:** Rust dependencies are locked in Cargo.lock, using libmpv2 6 and SDL2 bindings 0.38. Development links native libraries through pkg-config; release packages still need dependency bundling and per-platform layouts. Dynamic linking and bundled release dependencies are already decided.
+- **Network defaults:** HTTP defaults to port 5200. Prefer the routed private IPv4 interface, falling back to an available private IPv4 interface; --ip overrides selection, especially with VPNs or multiple LANs. Derive a stable UUID from the hostname, with --uuid available for collision avoidance. No configuration file is used.
 - **Compatibility evidence:** record discovery, playback, controls, and errors for representative iQIYI and Bilibili versions on Android and iOS, then expand coverage. Additional protocols require evidence from these tests; broad compatibility is not yet verified.
 - **Platform validation:** record dependency-derived minimum system versions and arrange verification on available macOS, Windows, X11, and Wayland hosts.
 - **Licensing:** select the project license after dependency review; prefer permissively licensed dependencies and verify the full native-library license chain before distribution.
@@ -153,8 +155,63 @@ The architecture and behavior above are accepted. Remaining choices are implemen
 
 ## Development
 
-There are no build or run commands yet. A Cargo workspace and development instructions will be added when implementation begins.
+Install Rust and the SDL2/libmpv development libraries with pkg-config metadata. Castrivo links the libraries in-process and does not launch the mpv executable. Package managers may install that executable alongside the development library.
+
+On macOS with Homebrew:
+
+```sh
+brew install pkg-config sdl2 mpv
+cargo run
+```
+
+On Debian/Ubuntu (not yet runtime-verified):
+
+```sh
+sudo apt install pkg-config libsdl2-dev libmpv-dev build-essential
+cargo run
+```
+
+On Windows, provide SDL2 and libmpv libraries compatible with the Rust target and their pkg-config metadata. Windows build and runtime validation is pending. Set `PKG_CONFIG_PATH` if native libraries are outside the package manager's standard search paths.
+
+Common options:
+
+```sh
+cargo run -- --name Castrivo --ip 192.168.2.40 --port 5200
+cargo run -- --media https://example.com/video.mp4
+cargo run -- --help
+```
+
+Replace the example IP with the computer's LAN address. Keep the phone on the same LAN and select **Castrivo** from its app's casting menu. Discovery uses IPv4 SSDP multicast on UDP 1900; control uses the configured HTTP port. If automatic selection chooses a VPN or another network, use `--ip`. Receiver startup prints the selected address when info logging is enabled (`RUST_LOG=castrivo=info`).
+
+Shortcuts: `F` toggles fullscreen, `Space` pauses/resumes, arrow keys seek five seconds, and `Escape` exits. Closing the window also exits the receiver. A new casting request replaces the previous media; losing the phone connection does not stop playback.
+
+Checks:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build
+```
+
+With Castrivo already running, exercise actual network discovery and casting without a phone:
+
+```sh
+python3 scripts/smoke_cast.py --receiver http://192.168.2.40:5200
+```
+
+The default smoke test uses the public jellyfish sample from the libmpv2 example repository. Its accessibility depends on the network. To test an HTTP media URL with a local audio/video fixture, first create a diagnostic file (FFmpeg is a test tool only, not a runtime dependency):
+
+```sh
+mkdir -p artifacts
+ffmpeg -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 30 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart artifacts/smoke.mp4
+python3 scripts/smoke_cast.py --receiver http://192.168.2.40:5200 --local-media artifacts/smoke.mp4
+```
+
+The script serves the fixture over HTTP, subscribes to playback events, and sends standard UPnP controls. Use the LAN address rather than localhost for multicast discovery. Tests change the running player's media, volume, and playback state.
+
+Current boundaries: one transport instance, one active media item, HTTP/HTTPS casting URLs, IPv4 discovery, and HTTP event callbacks with numeric local IPv4 addresses. The implementation does not yet extract sender-specific headers or cookies, queue the next item, implement AirPlay/Google Cast, or bundle native dependencies. GUI settings and app-specific protocol branches are absent. Mainstream-app compatibility and visible/audible output need actual device verification.
 
 ## License
 
-The project license has not been selected. Distribution must account for the licenses of the playback engine and its bundled dependencies.
+The project license will be selected after dependency review. libmpv2 is LGPL-2.1; the license of libmpv depends on its build, and native dependencies carry their own terms. No distributable bundle is provided yet. Distribution must account for the complete license chain.
