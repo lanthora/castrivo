@@ -16,8 +16,6 @@ enum Target {
     Seek,
     Volume,
     Pause,
-    Back,
-    Forward,
     Mute,
     Fullscreen,
 }
@@ -82,8 +80,6 @@ impl Controls {
         }
         match x {
             28.0..=72.0 => Some(Target::Pause),
-            82.0..=126.0 => Some(Target::Back),
-            132.0..=176.0 => Some(Target::Forward),
             708.0..=748.0 => Some(Target::Mute),
             764.0..=856.0 => Some(Target::Volume),
             888.0..=932.0 => Some(Target::Fullscreen),
@@ -101,11 +97,6 @@ impl Controls {
                 Action::Volume((((x - 764.) / 92.).clamp(0., 1.) * 100.).round() as u16)
             }
             Target::Pause => Action::TogglePause,
-            Target::Back if state.seekable => Action::Seek((state.position - 10.).max(0.)),
-            Target::Forward if state.seekable => {
-                Action::Seek((state.position + 10.).min(state.duration.max(state.position)))
-            }
-            Target::Back | Target::Forward => return None,
             Target::Mute => Action::ToggleMute,
             Target::Fullscreen => Action::Fullscreen,
         })
@@ -160,8 +151,6 @@ impl Controls {
         }
         for (target, x) in [
             (Target::Pause, 50.),
-            (Target::Back, 104.),
-            (Target::Forward, 154.),
             (Target::Mute, 728.),
             (Target::Fullscreen, 910.),
         ] {
@@ -175,25 +164,9 @@ impl Controls {
             rect(&mut out, 42., 490., 5., 22., "F4EDE8", 0);
             rect(&mut out, 53., 490., 5., 22., "F4EDE8", 0);
         }
-        path(
-            &mut out,
-            91.,
-            487.,
-            "m 0 9 l 9 0 l 9 6 l 25 6 l 25 9 l 9 9 l 9 15",
-            "F4EDE8",
-        );
-        path(
-            &mut out,
-            141.,
-            487.,
-            "m 25 9 l 16 0 l 16 6 l 0 6 l 0 9 l 16 9 l 16 15",
-            "F4EDE8",
-        );
-        text(&mut out, 104., 514., "10", 10);
-        text(&mut out, 154., 514., "10", 10);
         text_left(
             &mut out,
-            194.,
+            88.,
             501.,
             &format!("{}  /  {}", clock(state.position), clock(state.duration)),
             14,
