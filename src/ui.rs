@@ -11,23 +11,12 @@ pub fn overlay(state: &Snapshot, name: &str, theme: crate::theme::Theme) -> Stri
     if !state.error && state.state == "TRANSITIONING" {
         return r"{\an5\pos(480,270)\fnArial\fs18\bord0\shad1\1c&HF4EDE8&}Buffering...".into();
     }
-    if !state.error && state.state == "NO_MEDIA_PRESENT" {
+    if !state.error {
         return waiting(name, theme);
     }
     let palette = theme.palette();
-    let (heading, detail) = if state.error {
-        (
-            "Unable to play this video",
-            "Try casting again from your phone.",
-        )
-    } else if state.state == "STOPPED" {
-        (
-            "Ready for the next video",
-            "Resume playback or choose another video on your phone.",
-        )
-    } else {
-        (name, "Open a video on your phone and choose this device.")
-    };
+    let heading = "Unable to play this video";
+    let detail = "Try casting again from your phone.";
     // A single reference canvas scales with the render target, including HiDPI.
     // ASS colors use BGR order. Names are escaped and clipped to the text region.
     format!(
