@@ -23,7 +23,7 @@ The first release aims to be a general-purpose video casting receiver for mainst
 - Play the video in a desktop window with fullscreen support.
 - Support play, pause, stop, seek, and volume control where the sender and media support them.
 - Report playback state and position to the sender.
-- Expose the receiver name, connection status, and useful playback errors through the window title and terminal diagnostics in English.
+- Display the receiver name and playback status inside the video area. Keep the window title fixed as Castrivo; detailed diagnostics remain in the terminal.
 - Handle one active playback session at a time.
 
 The initial protocol target is a DLNA/UPnP AV MediaRenderer. Implement a standards-based receiver rather than designing around one selected app. Validate this protocol against multiple mainstream apps; DLNA/UPnP alone has not yet been proven sufficient for the compatibility goal. A generic receiver may not appear in apps that only discover approved devices or use proprietary casting protocols.
@@ -69,7 +69,7 @@ Application logic, networking, and protocol handling will be implemented in Rust
 | --- | --- |
 | Window and event loop | SDL2 through Rust bindings |
 | Graphics context | SDL2 OpenGL context, integrated with the libmpv Render API |
-| Desktop controls | Video window, fullscreen, and a small set of keyboard shortcuts; no GUI widget framework in the first release |
+| Desktop controls | Built-in mpv OSC mouse controls, fullscreen, and keyboard shortcuts; no GUI widget framework |
 | Async networking | Tokio for network I/O, timers, and background tasks |
 | Device discovery | Small socket2/Tokio SSDP layer with multicast advertisements and targeted/all-device search responses |
 | Receiver protocol | Axum HTTP, library-based XML parsing, declarative service descriptions, SOAP handlers, and GENA subscriptions; receiver-library reuse audit recorded below |
@@ -146,7 +146,7 @@ The intended desktop platforms are macOS, Windows, and Linux. Include both X11 a
 2. **Playback foundation:** adapt the libmpv2 SDL2 OpenGL example into the retained cross-platform playback foundation. Verify video, audio, resizing, and shutdown with representative media; retain this path for the receiver.
 3. **Minimal casting prototype:** connect discovery and standard receiver service actions to that playback foundation. Record real-app discovery, video, audio, and stop results.
 4. **Receiver completeness:** expand service actions, subscriptions, playback events, controls, and session transitions for standards compliance and observed interoperability requirements.
-5. **Desktop experience:** add receiver configuration, playback controls, fullscreen, and actionable errors on the existing playback foundation. Keep the first release limited to shortcuts and terminal configuration; consider widgets only for later demonstrated needs.
+5. **Desktop experience:** add receiver configuration, playback controls, fullscreen, and actionable errors on the existing playback foundation. Reuse mpv OSC/OSD for playback controls and status; retain terminal configuration and consider widgets only for demonstrated needs.
 6. **Compatibility and distribution:** publish measured app compatibility and validate platform packages and native dependency licensing.
 
 ## Implementation decisions and remaining validation
@@ -198,6 +198,10 @@ cargo run -- --help
 ```
 
 Replace the example IP with the computer's LAN address. Keep the phone on the same LAN and select **Castrivo** from its app's casting menu. Discovery uses IPv4 SSDP multicast on UDP 1900; control uses the configured HTTP port. If automatic selection chooses a VPN or another network, use `--ip`. Receiver startup prints the selected address when info logging is enabled (`RUST_LOG=castrivo=info`).
+
+The window title stays `Castrivo`. mpv's built-in OSC appears over the video when the mouse moves, then hides after inactivity. Its floating box near the bottom provides pause/resume, backward/forward seeking, a draggable seekbar, volume, and fullscreen; mpv handles media seek limitations. The built-in buttons seek backward 5 seconds and forward 10 seconds in the current mpv version; arrow shortcuts remain 5 seconds in either direction. SDL mouse positions are converted to drawable pixels for HiDPI hit testing, and mpv fullscreen requests are applied to the SDL window. No additional GUI framework or external player is used.
+
+Waiting for a cast shows the receiver name in the video area. Buffering, pause, stop, and playback failure show short Chinese messages in the same area; normal playback clears the status overlay. These messages omit media URLs and credentials. An mpv build with Lua and libass support is required for OSC and text rendering. Automated protocol regression passed after this change; manual mouse/HiDPI/fullscreen visual verification is pending because the development Mac was locked.
 
 Shortcuts: `F` toggles fullscreen, `Space` pauses/resumes, arrow keys seek five seconds, and `Escape` exits. Closing the window also exits the receiver. A new casting request replaces the previous media; losing the phone connection does not stop playback.
 

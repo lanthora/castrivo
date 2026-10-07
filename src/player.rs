@@ -6,6 +6,7 @@ use libmpv2::{
 use sdl2::{
     event::Event,
     keyboard::Keycode,
+    mouse::MouseButton,
     video::{FullscreenType, GLProfile},
 };
 use std::{ffi::c_void, time::Duration};
@@ -75,7 +76,7 @@ pub fn run(
     attr.set_context_version(3, 3);
     attr.set_context_flags().forward_compatible().set();
     let mut window = video
-        .window(name, 960, 540)
+        .window("Castrivo", 960, 540)
         .opengl()
         .resizable()
         .allow_highdpi()
@@ -92,6 +93,13 @@ pub fn run(
         init.set_property("vo", "libmpv")?;
         init.set_property("idle", "yes")?;
         init.set_property("ytdl", "no")?;
+        init.set_property("osc", "yes")?;
+        init.set_property("input-default-bindings", "yes")?;
+        init.set_property("input-cursor", "yes")?;
+        init.set_property(
+            "script-opts",
+            "osc-layout=box,osc-visibility=auto,osc-hidetimeout=1500,osc-idlescreen=no,osc-windowcontrols=no,osc-title=Castrivo",
+        )?;
         Ok(())
     })
     .context("Could not initialize libmpv")?;
@@ -112,6 +120,8 @@ pub fn run(
     render.set_update_callback(move || {
         let _ = sender.push_custom_event(Wake::Render);
     });
+    // Keep the render output available for waiting/error overlays without media.
+    mpv.set_property("force-window", "yes")?;
     let mut state = Snapshot::default();
     if let Some(uri) = media {
         apply(
@@ -126,6 +136,7 @@ pub fn run(
     }
     let mut redraw = true;
     let mut last_update = std::time::Instant::now();
+    let mut displayed_status = None;
     while !*shutdown.borrow() {
         while let Ok(request) = commands.try_recv() {
             let result = apply(&mpv, &mut state, request.command)
@@ -170,6 +181,8 @@ pub fn run(
                         FullscreenType::Off
                     };
                     window.set_fullscreen(mode).map_err(anyhow::Error::msg)?;
+                    mpv.set_property("fullscreen", mode != FullscreenType::Off)?;
+                    redraw = true;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Space),
@@ -182,19 +195,55 @@ pub fn run(
                     keycode: Some(Keycode::Left),
                     ..
                 } => {
-                    let _ = mpv.command("seek", &["-5", "relative"]);
+                    if state.seekable {
+                        let _ = mpv.command("seek", &["-5", "relative"]);
+                    }
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Right),
                     ..
                 } => {
-                    let _ = mpv.command("seek", &["5", "relative"]);
+                    if state.seekable {
+                        let _ = mpv.command("seek", &["5", "relative"]);
+                    }
+                }
+                Event::MouseMotion { x, y, .. } => {
+                    mouse_position(&mpv, &window, x, y)?;
+                }
+                Event::MouseButtonDown {
+                    mouse_btn, x, y, ..
+                }
+                | Event::MouseButtonUp {
+                    mouse_btn, x, y, ..
+                } => {
+                    mouse_position(&mpv, &window, x, y)?;
+                    if let Some(button) = mouse_key(mouse_btn) {
+                        let command = if matches!(event, Event::MouseButtonDown { .. }) {
+                            "keydown"
+                        } else {
+                            "keyup"
+                        };
+                        mpv.command(command, &[button])?;
+                    }
+                }
+                Event::Window {
+                    win_event: sdl2::event::WindowEvent::Leave,
+                    ..
+                } => {
+                    mpv.command("keypress", &["MOUSE_LEAVE"])?;
+                }
+                Event::Window {
+                    win_event: sdl2::event::WindowEvent::FocusLost,
+                    ..
+                } => {
+                    mpv.command("keyup", &[])?;
                 }
                 _ => {}
             }
         }
         while let Some(event) = mpv.wait_event(0.) {
             match event {
+                Ok(libmpv2::events::Event::Shutdown) => return Ok(()),
                 Ok(libmpv2::events::Event::EndFile(reason)) => {
                     state.state = if state.uri.is_empty() {
                         "NO_MEDIA_PRESENT"
@@ -232,16 +281,34 @@ pub fn run(
             if *snapshot.borrow() != state {
                 snapshot.send_replace(state.clone());
             }
-            window.set_title(&format!(
-                "{name} — {}{}",
-                state.state,
-                if state.error {
-                    " — playback error"
-                } else {
-                    ""
-                }
-            ))?;
+            // OSC fullscreen requests target mpv; SDL owns the actual window.
+            let fullscreen = mpv.get_property::<bool>("fullscreen").unwrap_or(false);
+            if fullscreen != (window.fullscreen_state() != FullscreenType::Off) {
+                window
+                    .set_fullscreen(if fullscreen {
+                        FullscreenType::Desktop
+                    } else {
+                        FullscreenType::Off
+                    })
+                    .map_err(anyhow::Error::msg)?;
+                redraw = true;
+            }
             last_update = std::time::Instant::now();
+        }
+        let status = screen_status(&state, name);
+        if displayed_status.as_ref() != Some(&status) {
+            // Keep receiver status separate from OSC and transient seek/volume OSD.
+            let data = if status.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    r"{{\an5\pos(480,250)\fs28\bord1\shad1}}{}",
+                    ass_text(&status)
+                )
+            };
+            mpv.command("osd-overlay", &["100", "ass-events", &data, "960", "540"])?;
+            displayed_status = Some(status);
+            redraw = true;
         }
         if redraw {
             let (width, height) = window.drawable_size();
@@ -327,4 +394,76 @@ fn refresh(mpv: &Mpv, state: &mut Snapshot) {
         .unwrap_or(100.)
         .clamp(0., 100.) as u16;
     state.mute = mpv.get_property("mute").unwrap_or(false);
+}
+
+// SDL coordinates are logical points; mpv's OSC hit regions use drawable pixels.
+fn mouse_position(mpv: &Mpv, window: &sdl2::video::Window, x: i32, y: i32) -> Result<()> {
+    let (logical_w, logical_h) = window.size();
+    let (pixel_w, pixel_h) = window.drawable_size();
+    let x = (f64::from(x) * f64::from(pixel_w) / f64::from(logical_w.max(1))).round();
+    let y = (f64::from(y) * f64::from(pixel_h) / f64::from(logical_h.max(1))).round();
+    mpv.command("mouse", &[&x.to_string(), &y.to_string()])?;
+    Ok(())
+}
+fn mouse_key(button: MouseButton) -> Option<&'static str> {
+    match button {
+        MouseButton::Left => Some("MBTN_LEFT"),
+        MouseButton::Middle => Some("MBTN_MID"),
+        MouseButton::Right => Some("MBTN_RIGHT"),
+        _ => None,
+    }
+}
+fn screen_status(state: &Snapshot, name: &str) -> String {
+    if state.error {
+        "播放失败，请重新投屏".into()
+    } else {
+        match state.state {
+            "NO_MEDIA_PRESENT" => format!("等待投屏\n{name}"),
+            "TRANSITIONING" => "正在缓冲…".into(),
+            "PAUSED_PLAYBACK" => "已暂停".into(),
+            "STOPPED" => "播放已停止，请播放或重新投屏".into(),
+            _ => String::new(),
+        }
+    }
+}
+fn ass_text(text: &str) -> String {
+    // Break ASS escape/tag syntax in arbitrary device names, preserving line breaks.
+    text.replace('\\', "\\\u{feff}")
+        .replace('{', "\\{")
+        .replace('}', "\\}")
+        .replace('\r', "")
+        .replace('\n', "\\N")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_shows_receiver_identity_but_never_media_credentials() {
+        let mut state = Snapshot {
+            uri: "https://example.test/video?token=private".into(),
+            metadata: "private media metadata".into(),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            screen_status(&state, "Living room"),
+            "等待投屏\nLiving room"
+        );
+        state.state = "PLAYING";
+        assert!(screen_status(&state, "Living room").is_empty());
+        state.error = true;
+        let message = screen_status(&state, "Living room");
+        assert_eq!(message, "播放失败，请重新投屏");
+        assert!(!message.contains("private"));
+    }
+
+    #[test]
+    fn device_names_cannot_inject_ass_formatting() {
+        let text = ass_text("Room {\\pos(0,0)}\\N\r\nReceiver");
+        assert!(!text.contains("{\\pos"));
+        assert!(!text.contains("}\\N"));
+        assert!(!text.contains('\r'));
+        assert!(text.ends_with("\\NReceiver"));
+    }
 }
