@@ -1,4 +1,5 @@
 mod discovery;
+mod logging;
 mod player;
 mod protocol;
 
@@ -26,16 +27,32 @@ struct Options {
     /// Play a media URL or local file at startup for diagnostics.
     #[arg(long)]
     media: Option<String>,
+    /// Optional detailed libmpv log; may contain media URLs or credentials.
+    #[arg(long)]
+    mpv_log: Option<std::path::PathBuf>,
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "castrivo=info".into()),
-        )
-        .init();
+    logging::init()?;
     let options = Options::parse();
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+        pid = std::process::id(),
+        "Starting receiver"
+    );
+    let result = run(options);
+    match &result {
+        Ok(()) => tracing::info!("Receiver shut down normally"),
+        Err(error) => {
+            tracing::error!(error = %format!("{error:#}"), "Receiver exited with an error")
+        }
+    }
+    result
+}
+
+fn run(options: Options) -> Result<()> {
     let ip = match options.ip {
         Some(ip) => ip,
         None => {
@@ -108,12 +125,16 @@ fn main() -> Result<()> {
         }
     });
     tracing::info!(%ip, port, uuid = %id, "Receiver ready; use the phone app casting menu");
+    let native_log = options
+        .mpv_log
+        .map(|path| path.to_string_lossy().into_owned());
     let result = player::run(
         receiver,
         snapshot,
         shutdown.subscribe(),
         &options.name,
         options.media,
+        native_log.as_deref(),
     );
     let _ = shutdown.send(true);
     runtime

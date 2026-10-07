@@ -68,6 +68,7 @@ pub fn run(
     shutdown: watch::Receiver<bool>,
     name: &str,
     media: Option<String>,
+    native_log: Option<&str>,
 ) -> Result<()> {
     let sdl = sdl2::init().map_err(anyhow::Error::msg)?;
     let video = sdl.video().map_err(anyhow::Error::msg)?;
@@ -90,6 +91,9 @@ pub fn run(
         .map_err(anyhow::Error::msg)?;
     let mut pump = sdl.event_pump().map_err(anyhow::Error::msg)?;
     let mut mpv = Mpv::with_initializer(|init| {
+        if let Some(path) = native_log {
+            init.set_property("log-file", path)?;
+        }
         init.set_property("vo", "libmpv")?;
         init.set_property("idle", "yes")?;
         init.set_property("ytdl", "no")?;
@@ -120,6 +124,11 @@ pub fn run(
     render.set_update_callback(move || {
         let _ = sender.push_custom_event(Wake::Render);
     });
+    tracing::info!(
+        mpv_version = mpv.get_property::<String>("mpv-version").unwrap_or_default(),
+        sdl_version = %sdl2::version::version(),
+        "Player initialized with built-in controls"
+    );
     // Keep the render output available for waiting/error overlays without media.
     mpv.set_property("force-window", "yes")?;
     let mut state = Snapshot::default();
@@ -139,11 +148,20 @@ pub fn run(
     let mut displayed_status = None;
     while !*shutdown.borrow() {
         while let Ok(request) = commands.try_recv() {
-            let result = apply(&mpv, &mut state, request.command)
-                .map_err(|_| "Playback command failed".to_string());
-            if result.is_err() {
-                tracing::warn!("Playback command failed");
-            }
+            let operation = match &request.command {
+                Command::Load { .. } => "load",
+                Command::Play => "play",
+                Command::Pause => "pause",
+                Command::Stop => "stop",
+                Command::Seek(_) => "seek",
+                Command::Volume(_) => "volume",
+                Command::Mute(_) => "mute",
+            };
+            tracing::info!(operation, "Applying playback command");
+            let result = apply(&mpv, &mut state, request.command).map_err(|error| {
+                tracing::warn!(operation, %error, "Playback command failed");
+                "Playback command failed".to_string()
+            });
             refresh(&mpv, &mut state);
             snapshot.send_replace(state.clone());
             let _ = request.reply.send(result);
@@ -158,6 +176,18 @@ pub fn run(
                     }
                     Wake::Events => {}
                 }
+            }
+            if let Event::KeyDown {
+                keycode: Some(key),
+                repeat: false,
+                ..
+            } = &event
+                && matches!(
+                    *key,
+                    Keycode::Escape | Keycode::F | Keycode::Space | Keycode::Left | Keycode::Right
+                )
+            {
+                tracing::info!(?key, "Playback shortcut input");
             }
             match event {
                 Event::Quit { .. }
@@ -223,6 +253,7 @@ pub fn run(
                         } else {
                             "keyup"
                         };
+                        tracing::info!(command, button, "Mouse button input");
                         mpv.command(command, &[button])?;
                     }
                 }
@@ -236,7 +267,7 @@ pub fn run(
                     win_event: sdl2::event::WindowEvent::FocusLost,
                     ..
                 } => {
-                    mpv.command("keyup", &[])?;
+                    release_input(&mpv)?;
                 }
                 _ => {}
             }
@@ -255,11 +286,11 @@ pub fn run(
                         tracing::warn!("Media playback failed; URL and credentials omitted");
                     }
                 }
-                Err(_) => {
+                Err(error) => {
                     state.error = true;
                     state.state = "STOPPED";
                     tracing::warn!(
-                        "Player reported an error; details omitted to protect media credentials"
+                        %error, "Player reported an error"
                     );
                 }
                 _ => {}
@@ -400,9 +431,25 @@ fn refresh(mpv: &Mpv, state: &mut Snapshot) {
 fn mouse_position(mpv: &Mpv, window: &sdl2::video::Window, x: i32, y: i32) -> Result<()> {
     let (logical_w, logical_h) = window.size();
     let (pixel_w, pixel_h) = window.drawable_size();
+    tracing::debug!(
+        x,
+        y,
+        logical_w,
+        logical_h,
+        pixel_w,
+        pixel_h,
+        "Forwarding pointer coordinates"
+    );
     let x = (f64::from(x) * f64::from(pixel_w) / f64::from(logical_w.max(1))).round();
     let y = (f64::from(y) * f64::from(pixel_h) / f64::from(logical_h.max(1))).round();
     mpv.command("mouse", &[&x.to_string(), &y.to_string()])?;
+    Ok(())
+}
+fn release_input(mpv: &Mpv) -> Result<()> {
+    // mpv 0.41 dereferences a null argument when keyup's optional name is omitted.
+    // An explicit empty string safely requests release of all held inputs.
+    tracing::info!(command = "keyup", "Window lost focus; releasing held input");
+    mpv.command("keyup", &[""])?;
     Ok(())
 }
 fn mouse_key(button: MouseButton) -> Option<&'static str> {
@@ -415,13 +462,13 @@ fn mouse_key(button: MouseButton) -> Option<&'static str> {
 }
 fn screen_status(state: &Snapshot, name: &str) -> String {
     if state.error {
-        "播放失败，请重新投屏".into()
+        "Playback failed. Please cast again.".into()
     } else {
         match state.state {
-            "NO_MEDIA_PRESENT" => format!("等待投屏\n{name}"),
-            "TRANSITIONING" => "正在缓冲…".into(),
-            "PAUSED_PLAYBACK" => "已暂停".into(),
-            "STOPPED" => "播放已停止，请播放或重新投屏".into(),
+            "NO_MEDIA_PRESENT" => format!("Waiting for a cast\n{name}"),
+            "TRANSITIONING" => "Buffering...".into(),
+            "PAUSED_PLAYBACK" => "Paused".into(),
+            "STOPPED" => "Playback stopped. Resume or cast again.".into(),
             _ => String::new(),
         }
     }
@@ -440,6 +487,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn focus_loss_releases_all_input_with_real_libmpv() {
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_property("vo", "null")?;
+            init.set_property("idle", "yes")?;
+            Ok(())
+        })
+        .unwrap();
+        for button in ["MBTN_LEFT", "MBTN_MID", "MBTN_RIGHT"] {
+            mpv.command("keydown", &[button]).unwrap();
+            release_input(&mpv).unwrap();
+        }
+        release_input(&mpv).unwrap();
+        // A native crash would terminate this test process before this round-trip.
+        mpv.set_property("pause", true).unwrap();
+        assert!(mpv.get_property::<bool>("pause").unwrap());
+    }
+
+    #[test]
     fn status_shows_receiver_identity_but_never_media_credentials() {
         let mut state = Snapshot {
             uri: "https://example.test/video?token=private".into(),
@@ -448,13 +513,13 @@ mod tests {
         };
         assert_eq!(
             screen_status(&state, "Living room"),
-            "等待投屏\nLiving room"
+            "Waiting for a cast\nLiving room"
         );
         state.state = "PLAYING";
         assert!(screen_status(&state, "Living room").is_empty());
         state.error = true;
         let message = screen_status(&state, "Living room");
-        assert_eq!(message, "播放失败，请重新投屏");
+        assert_eq!(message, "Playback failed. Please cast again.");
         assert!(!message.contains("private"));
     }
 
