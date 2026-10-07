@@ -1,0 +1,11 @@
+{
+  "name": "castrivo",
+  "productName": "Castrivo",
+  "identifier": "dev.castrivo.desktop",
+  "category": "Video",
+  "description": "Turn your desktop into a video casting receiver.",
+  "icons": ["packaging/icon.png"],
+  "binaries": [{"path": "castrivo", "main": true}],
+  "linux": {"generateDesktopEntry": true},
+  "nsis": {"installMode": "currentUser"}
+}
