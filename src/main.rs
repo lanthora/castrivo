@@ -2,6 +2,7 @@ mod discovery;
 mod logging;
 mod player;
 mod protocol;
+mod ui;
 
 use anyhow::{Context, Result};
 use clap::Parser;

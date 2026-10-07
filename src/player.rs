@@ -98,11 +98,12 @@ pub fn run(
         init.set_property("idle", "yes")?;
         init.set_property("ytdl", "no")?;
         init.set_property("osc", "yes")?;
+        init.set_property("osd-level", 0i64)?;
         init.set_property("input-default-bindings", "yes")?;
         init.set_property("input-cursor", "yes")?;
         init.set_property(
             "script-opts",
-            "osc-layout=box,osc-visibility=auto,osc-hidetimeout=1500,osc-idlescreen=no,osc-windowcontrols=no,osc-title=Castrivo",
+            "osc-layout=box,osc-visibility=auto,osc-hidetimeout=1500,osc-idlescreen=no,osc-windowcontrols=no,osc-title=Castrivo,osc-scalewindowed=0.8,osc-scalefullscreen=0.8,osc-valign=0.95,osc-boxalpha=35,osc-seekbarstyle=knob,osc-background_color=#151B24,osc-timecode_color=#85D4BF,osc-buttons_color=#E8EDF4,osc-title_color=#A5AFBE,osc-small_buttonsL_color=#A5AFBE,osc-small_buttonsR_color=#A5AFBE,osc-top_buttons_color=#A5AFBE,osc-held_element_color=#85D4BF",
         )?;
         Ok(())
     })
@@ -146,6 +147,7 @@ pub fn run(
     let mut redraw = true;
     let mut last_update = std::time::Instant::now();
     let mut displayed_status = None;
+    let mut controls_pinned = false;
     while !*shutdown.borrow() {
         while let Ok(request) = commands.try_recv() {
             let operation = match &request.command {
@@ -184,7 +186,12 @@ pub fn run(
             } = &event
                 && matches!(
                     *key,
-                    Keycode::Escape | Keycode::F | Keycode::Space | Keycode::Left | Keycode::Right
+                    Keycode::Escape
+                        | Keycode::F
+                        | Keycode::Space
+                        | Keycode::Left
+                        | Keycode::Right
+                        | Keycode::Tab
                 )
             {
                 tracing::info!(?key, "Playback shortcut input");
@@ -213,6 +220,21 @@ pub fn run(
                     window.set_fullscreen(mode).map_err(anyhow::Error::msg)?;
                     mpv.set_property("fullscreen", mode != FullscreenType::Off)?;
                     redraw = true;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Tab),
+                    repeat: false,
+                    ..
+                } => {
+                    controls_pinned = !controls_pinned;
+                    mpv.command(
+                        "script-message-to",
+                        &[
+                            "osc",
+                            "osc-visibility",
+                            if controls_pinned { "always" } else { "auto" },
+                        ],
+                    )?;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Space),
@@ -326,18 +348,9 @@ pub fn run(
             }
             last_update = std::time::Instant::now();
         }
-        let status = screen_status(&state, name);
+        let status = crate::ui::overlay(&state, name);
         if displayed_status.as_ref() != Some(&status) {
-            // Keep receiver status separate from OSC and transient seek/volume OSD.
-            let data = if status.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    r"{{\an5\pos(480,250)\fs28\bord1\shad1}}{}",
-                    ass_text(&status)
-                )
-            };
-            mpv.command("osd-overlay", &["100", "ass-events", &data, "960", "540"])?;
+            mpv.command("osd-overlay", &["100", "ass-events", &status, "960", "540"])?;
             displayed_status = Some(status);
             redraw = true;
         }
@@ -460,31 +473,10 @@ fn mouse_key(button: MouseButton) -> Option<&'static str> {
         _ => None,
     }
 }
-fn screen_status(state: &Snapshot, name: &str) -> String {
-    if state.error {
-        "Playback failed. Please cast again.".into()
-    } else {
-        match state.state {
-            "NO_MEDIA_PRESENT" => format!("Waiting for a cast\n{name}"),
-            "TRANSITIONING" => "Buffering...".into(),
-            "PAUSED_PLAYBACK" => "Paused".into(),
-            "STOPPED" => "Playback stopped. Resume or cast again.".into(),
-            _ => String::new(),
-        }
-    }
-}
-fn ass_text(text: &str) -> String {
-    // Break ASS escape/tag syntax in arbitrary device names, preserving line breaks.
-    text.replace('\\', "\\\u{feff}")
-        .replace('{', "\\{")
-        .replace('}', "\\}")
-        .replace('\r', "")
-        .replace('\n', "\\N")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::{ass_text, overlay};
 
     #[test]
     fn focus_loss_releases_all_input_with_real_libmpv() {
@@ -511,15 +503,14 @@ mod tests {
             metadata: "private media metadata".into(),
             ..Snapshot::default()
         };
-        assert_eq!(
-            screen_status(&state, "Living room"),
-            "Waiting for a cast\nLiving room"
-        );
+        let waiting = overlay(&state, "Living room");
+        assert!(waiting.contains("Living room"));
+        assert!(!waiting.contains("private"));
         state.state = "PLAYING";
-        assert!(screen_status(&state, "Living room").is_empty());
+        assert!(overlay(&state, "Living room").is_empty());
         state.error = true;
-        let message = screen_status(&state, "Living room");
-        assert_eq!(message, "Playback failed. Please cast again.");
+        let message = overlay(&state, "Living room");
+        assert!(!message.is_empty());
         assert!(!message.contains("private"));
     }
 
