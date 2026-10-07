@@ -5,22 +5,11 @@ pub fn overlay(state: &Snapshot, name: &str) -> String {
     if !state.error && state.state == "PLAYING" {
         return String::new();
     }
-    if !state.error && matches!(state.state, "PAUSED_PLAYBACK" | "TRANSITIONING") {
-        let label = if state.state == "TRANSITIONING" {
-            "Buffering..."
-        } else {
-            "Paused"
-        };
-        let width = if state.state == "TRANSITIONING" {
-            116
-        } else {
-            86
-        };
-        return format!(
-            r"{{\an7\pos(24,24)\bord0\shad0\1c&H241B15&\alpha&H40&\p1}}m 0 0 l {width} 0 l {width} 32 l 0 32{{\p0}}
-{{\an4\pos(38,40)\fnArial\fs14\bord0\shad0\1c&HF4EDE8&}}{}",
-            ass_text(label)
-        );
+    if !state.error && state.state == "PAUSED_PLAYBACK" {
+        return String::new();
+    }
+    if !state.error && state.state == "TRANSITIONING" {
+        return r"{\an5\pos(480,270)\fnArial\fs18\bord0\shad1\1c&HF4EDE8&}Buffering...".into();
     }
     let (heading, detail) = if state.error {
         (

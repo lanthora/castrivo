@@ -97,14 +97,10 @@ pub fn run(
         init.set_property("vo", "libmpv")?;
         init.set_property("idle", "yes")?;
         init.set_property("ytdl", "no")?;
-        init.set_property("osc", "yes")?;
+        init.set_property("osc", "no")?;
         init.set_property("osd-level", 0i64)?;
         init.set_property("input-default-bindings", "yes")?;
         init.set_property("input-cursor", "yes")?;
-        init.set_property(
-            "script-opts",
-            "osc-layout=box,osc-visibility=auto,osc-hidetimeout=1500,osc-idlescreen=no,osc-windowcontrols=no,osc-title=Castrivo,osc-scalewindowed=0.8,osc-scalefullscreen=0.8,osc-valign=0.95,osc-boxalpha=35,osc-seekbarstyle=knob,osc-background_color=#151B24,osc-timecode_color=#85D4BF,osc-buttons_color=#E8EDF4,osc-title_color=#A5AFBE,osc-small_buttonsL_color=#A5AFBE,osc-small_buttonsR_color=#A5AFBE,osc-top_buttons_color=#A5AFBE,osc-held_element_color=#85D4BF",
-        )?;
         Ok(())
     })
     .context("Could not initialize libmpv")?;
@@ -128,7 +124,7 @@ pub fn run(
     tracing::info!(
         mpv_version = mpv.get_property::<String>("mpv-version").unwrap_or_default(),
         sdl_version = %sdl2::version::version(),
-        "Player initialized with built-in controls"
+        "Player initialized with custom controls"
     );
     // Keep the render output available for waiting/error overlays without media.
     mpv.set_property("force-window", "yes")?;
@@ -147,7 +143,7 @@ pub fn run(
     let mut redraw = true;
     let mut last_update = std::time::Instant::now();
     let mut displayed_status = None;
-    let mut controls_pinned = false;
+    let mut controls = crate::controls::Controls::default();
     while !*shutdown.borrow() {
         while let Ok(request) = commands.try_recv() {
             let operation = match &request.command {
@@ -226,15 +222,7 @@ pub fn run(
                     repeat: false,
                     ..
                 } => {
-                    controls_pinned = !controls_pinned;
-                    mpv.command(
-                        "script-message-to",
-                        &[
-                            "osc",
-                            "osc-visibility",
-                            if controls_pinned { "always" } else { "auto" },
-                        ],
-                    )?;
+                    controls.pinned = !controls.pinned;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Space),
@@ -260,35 +248,35 @@ pub fn run(
                     }
                 }
                 Event::MouseMotion { x, y, .. } => {
-                    mouse_position(&mpv, &window, x, y)?;
-                }
-                Event::MouseButtonDown {
-                    mouse_btn, x, y, ..
-                }
-                | Event::MouseButtonUp {
-                    mouse_btn, x, y, ..
-                } => {
-                    mouse_position(&mpv, &window, x, y)?;
-                    if let Some(button) = mouse_key(mouse_btn) {
-                        let command = if matches!(event, Event::MouseButtonDown { .. }) {
-                            "keydown"
-                        } else {
-                            "keyup"
-                        };
-                        tracing::info!(command, button, "Mouse button input");
-                        mpv.command(command, &[button])?;
+                    if let Some(action) = controls.motion(x, y, window.size(), &state) {
+                        control_action(&mpv, &mut state, action)?;
                     }
                 }
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Left,
+                    x,
+                    y,
+                    ..
+                } => {
+                    controls.motion(x, y, window.size(), &state);
+                    if let Some(action) = controls.down(&state) {
+                        tracing::info!(?action, "Playback control activated");
+                        control_action(&mpv, &mut state, action)?;
+                    }
+                }
+                Event::MouseButtonUp {
+                    mouse_btn: MouseButton::Left,
+                    ..
+                } => controls.up(),
                 Event::Window {
                     win_event: sdl2::event::WindowEvent::Leave,
                     ..
-                } => {
-                    mpv.command("keypress", &["MOUSE_LEAVE"])?;
-                }
+                } => controls.leave(),
                 Event::Window {
                     win_event: sdl2::event::WindowEvent::FocusLost,
                     ..
                 } => {
+                    controls.leave();
                     release_input(&mpv)?;
                 }
                 _ => {}
@@ -334,7 +322,7 @@ pub fn run(
             if *snapshot.borrow() != state {
                 snapshot.send_replace(state.clone());
             }
-            // OSC fullscreen requests target mpv; SDL owns the actual window.
+            // Control requests target mpv; SDL owns the actual window.
             let fullscreen = mpv.get_property::<bool>("fullscreen").unwrap_or(false);
             if fullscreen != (window.fullscreen_state() != FullscreenType::Off) {
                 window
@@ -348,7 +336,11 @@ pub fn run(
             }
             last_update = std::time::Instant::now();
         }
-        let status = crate::ui::overlay(&state, name);
+        let status = format!(
+            "{}{}",
+            crate::ui::overlay(&state, name),
+            controls.overlay(&state, window.fullscreen_state() != FullscreenType::Off)
+        );
         if displayed_status.as_ref() != Some(&status) {
             mpv.command("osd-overlay", &["100", "ass-events", &status, "960", "540"])?;
             displayed_status = Some(status);
@@ -440,22 +432,23 @@ fn refresh(mpv: &Mpv, state: &mut Snapshot) {
     state.mute = mpv.get_property("mute").unwrap_or(false);
 }
 
-// SDL coordinates are logical points; mpv's OSC hit regions use drawable pixels.
-fn mouse_position(mpv: &Mpv, window: &sdl2::video::Window, x: i32, y: i32) -> Result<()> {
-    let (logical_w, logical_h) = window.size();
-    let (pixel_w, pixel_h) = window.drawable_size();
-    tracing::debug!(
-        x,
-        y,
-        logical_w,
-        logical_h,
-        pixel_w,
-        pixel_h,
-        "Forwarding pointer coordinates"
-    );
-    let x = (f64::from(x) * f64::from(pixel_w) / f64::from(logical_w.max(1))).round();
-    let y = (f64::from(y) * f64::from(pixel_h) / f64::from(logical_h.max(1))).round();
-    mpv.command("mouse", &[&x.to_string(), &y.to_string()])?;
+fn control_action(mpv: &Mpv, state: &mut Snapshot, action: crate::controls::Action) -> Result<()> {
+    use crate::controls::Action;
+    match action {
+        Action::TogglePause => {
+            mpv.command("cycle", &["pause"])?;
+        }
+        Action::Seek(position) => apply(mpv, state, Command::Seek(position))?,
+        Action::Volume(volume) => {
+            apply(mpv, state, Command::Volume(volume))?;
+            apply(mpv, state, Command::Mute(false))?;
+        }
+        Action::ToggleMute => apply(mpv, state, Command::Mute(!state.mute))?,
+        Action::Fullscreen => {
+            mpv.command("cycle", &["fullscreen"])?;
+        }
+    }
+    refresh(mpv, state);
     Ok(())
 }
 fn release_input(mpv: &Mpv) -> Result<()> {
@@ -465,18 +458,32 @@ fn release_input(mpv: &Mpv) -> Result<()> {
     mpv.command("keyup", &[""])?;
     Ok(())
 }
-fn mouse_key(button: MouseButton) -> Option<&'static str> {
-    match button {
-        MouseButton::Left => Some("MBTN_LEFT"),
-        MouseButton::Middle => Some("MBTN_MID"),
-        MouseButton::Right => Some("MBTN_RIGHT"),
-        _ => None,
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::{ass_text, overlay};
+
+    #[test]
+    fn custom_controls_update_real_mpv_properties() {
+        use crate::controls::Action;
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_property("vo", "null")?;
+            init.set_property("idle", "yes")?;
+            Ok(())
+        })
+        .unwrap();
+        let mut state = Snapshot::default();
+        control_action(&mpv, &mut state, Action::ToggleMute).unwrap();
+        assert!(state.mute);
+        control_action(&mpv, &mut state, Action::Volume(35)).unwrap();
+        assert_eq!(state.volume, 35);
+        assert!(!state.mute);
+        mpv.set_property("pause", false).unwrap();
+        control_action(&mpv, &mut state, Action::TogglePause).unwrap();
+        assert!(mpv.get_property::<bool>("pause").unwrap());
+        control_action(&mpv, &mut state, Action::Fullscreen).unwrap();
+        assert!(mpv.get_property::<bool>("fullscreen").unwrap());
+    }
 
     #[test]
     fn focus_loss_releases_all_input_with_real_libmpv() {
