@@ -8,7 +8,7 @@ Castrivo is a Rust desktop application in early development that lets compatible
 
 A runnable Rust receiver now implements SSDP discovery, UPnP service descriptions, SOAP playback controls, GENA subscriptions, and in-process video playback through SDL2 and libmpv2. It is an early implementation, not a released or certified DLNA device.
 
-Automated controller tests on the development host have exercised discovery, playback from a public HTTPS sample and a local HTTP video with audio, pause/resume, seek, volume/mute, media replacement, stop/replay, SOAP faults, subscription renewal, state events, and unsubscribe. These tests establish protocol-to-player operation, not compatibility with actual iQIYI or Bilibili phone apps. Visual and audible output still requires confirmation on an unlocked desktop. Windows, Linux, and packaged distribution remain unverified.
+Automated controller tests on the development host have exercised discovery, playback from a public HTTPS sample and a local HTTP video with audio, pause/resume, seek, volume/mute, media replacement, stop/replay, SOAP faults, subscription renewal, state events, and unsubscribe. These tests establish protocol-to-player operation. On 2026-10-07, the user reported successful casting from the Bilibili phone app on the development setup. App version, phone operating system, media category, and individual control/audio checks were not recorded, so this result must not be generalized to every Bilibili version or media item. iQIYI, Windows, Linux, and packaged distribution remain unverified.
 
 ## Language
 
@@ -118,7 +118,23 @@ Video-app compatibility is a release criterion to measure, not a guarantee impli
 - Seeking and duration reporting depend on whether the media is live or seekable.
 - Network isolation and firewall rules can prevent discovery or control even on the same Wi-Fi network.
 
-A future compatibility matrix should record the video app, app version, sender operating system, desktop platform, media type, and observed discovery, playback, and control results.
+Compatibility records must include the video app, app version, sender operating system, desktop platform, media type, and observed discovery, playback, and control results.
+
+| Date | Sender | Result | Coverage limits |
+| --- | --- | --- | --- |
+| 2026-10-07 | Bilibili phone app | User reported successful casting on the development setup | App version, phone OS, media type, and individual controls/audio checks not recorded |
+| 2026-10-07 | Automated UPnP controller | SSDP, public HTTPS/local HTTP playback, transport controls, volume/mute, replacement, faults, and GENA passed | Does not establish compatibility with other phone apps |
+
+## Known remaining work
+
+- **Release delivery:** native dependencies are installed on the development host; self-contained release packages and the dependency/license review are not complete.
+- **Compatibility and platform coverage:** verify iQIYI and additional app/OS/media combinations, and build/run on Windows and Linux X11/Wayland. Bilibili's reported success is one observed setup.
+- **Failure-path robustness:** network stalls, expired URLs, unsupported media, interrupted connections, natural end-of-file/replay, and prolonged use need targeted tests. Playback API calls are currently synchronous on the window thread, which can affect responsiveness; a timed-out SOAP request does not cancel an already queued player command.
+- **Network changes:** the interface and HTTP listener are selected at startup. Switching networks, changing addresses, and sleep/wake recovery do not yet trigger automatic rebinding or rediscovery.
+- **Media interoperability:** sender-specific headers/cookies are not extracted. Live streams and seeking limitations require verification; next-item queuing and other casting protocols remain outside the current implementation.
+- **Diagnostics and protocol review:** playback failures currently omit details to avoid leaking credentials. Add actionable sanitized errors and review the implemented service/action/event subset before claiming standards completeness.
+
+These are implementation gaps or validation risks, not failures reported by the Bilibili test.
 
 ## Desktop platform targets
 
@@ -210,7 +226,7 @@ python3 scripts/smoke_cast.py --receiver http://192.168.2.40:5200 --local-media 
 
 The script serves the fixture over HTTP, subscribes to playback events, and sends standard UPnP controls. Use the LAN address rather than localhost for multicast discovery. Tests change the running player's media, volume, and playback state.
 
-Current boundaries: one transport instance, one active media item, HTTP/HTTPS casting URLs, IPv4 discovery, and HTTP event callbacks with numeric local IPv4 addresses. The implementation does not yet extract sender-specific headers or cookies, queue the next item, implement AirPlay/Google Cast, or bundle native dependencies. GUI settings and app-specific protocol branches are absent. Mainstream-app compatibility and visible/audible output need actual device verification.
+Current boundaries: one transport instance, one active media item, HTTP/HTTPS casting URLs, IPv4 discovery, and HTTP event callbacks with numeric local IPv4 addresses. The implementation does not yet extract sender-specific headers or cookies, queue the next item, implement AirPlay/Google Cast, or bundle native dependencies. GUI settings and app-specific protocol branches are absent. Bilibili casting has one user-reported successful test; additional mainstream-app compatibility and detailed playback/control checks need actual device verification.
 
 ## License
 
