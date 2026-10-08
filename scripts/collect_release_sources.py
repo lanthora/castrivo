@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +30,7 @@ def download(url, path):
 
 
 def main():
+    import tomllib
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
