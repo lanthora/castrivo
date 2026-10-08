@@ -50,7 +50,8 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           HOMEBREW_NO_INSTALL_CLEANUP=1 brew install cmake pkg-config dylibbundler
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: native-cache
         if: runner.os == 'macOS'
         with:
           path: artifacts/macos-native
@@ -64,6 +65,11 @@ jobs:
             echo "PKG_CONFIG_PATH=$PWD/artifacts/macos-native/prefix/lib/pkgconfig"
             echo "PKG_CONFIG_LIBDIR=$PWD/artifacts/macos-native/prefix/lib/pkgconfig"
           } >> "$GITHUB_ENV"
+      - uses: actions/cache/save@v4
+        if: runner.os == 'macOS' && steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: artifacts/macos-native
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
