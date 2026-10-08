@@ -67,6 +67,8 @@ def main():
                             'sha256': digest, 'licenses': values.get('LICENSE', '')})
         label = 'windows-x64'
     elif sys.platform.startswith('linux'):
+        from prepare_appimage_runtime import prepare
+        entries.append(prepare(work))
         packages = set()
         for path in re.findall(r'(?:=>\s+)?(/\S+)', output('ldd', args.binary.resolve())):
             library = Path(path)
