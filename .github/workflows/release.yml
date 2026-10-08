@@ -78,8 +78,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           if test -f /etc/apt/sources.list.d/ubuntu.sources; then
-            sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+            sudo sed -i -e 's/^Types: deb$/Types: deb deb-src/' -e 's|^URIs:.*|URIs: https://archive.ubuntu.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources
           else
+            sudo sed -i -E 's@(mirror\+file:/etc/apt/apt(-security)?-mirrors.txt|http://azure.archive.ubuntu.com/ubuntu)@https://archive.ubuntu.com/ubuntu@g' /etc/apt/sources.list
             sed -n 's/^deb /deb-src /p' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/castrivo-sources.list
           fi
           sudo apt-get update

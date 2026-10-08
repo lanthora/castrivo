@@ -100,9 +100,9 @@ def main():
                 destination.mkdir(exist_ok=True)
                 shutil.copy2(copyright_file, destination / 'copyright')
             entries.append({'package': package, 'sourcePackage': source, 'sourceVersion': version})
-        for source, version in sorted(source_versions):
-            subprocess.run(['apt-get', 'source', '--download-only', f'{source}={version}'],
-                           cwd=sources, check=True)
+        source_arguments = [f'{source}={version}' for source, version in sorted(source_versions)]
+        subprocess.run(['apt-get', 'source', '--download-only', *source_arguments],
+                       cwd=sources, check=True)
         shutil.copytree('/usr/share/common-licenses', notices / 'common-licenses', dirs_exist_ok=True)
         label = 'linux-x64'
     else:
