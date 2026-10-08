@@ -160,7 +160,9 @@ jobs:
         run: |
           mkdir -p artifacts/source-bundle/castrivo/.cargo
           git archive HEAD | tar -x -C artifacts/source-bundle/castrivo
-          cargo vendor --locked artifacts/source-bundle/castrivo/vendor > artifacts/source-bundle/castrivo/.cargo/config.toml
+          pushd artifacts/source-bundle/castrivo
+          cargo vendor --locked vendor > .cargo/config.toml
+          popd
           tar -czf dist/release/Castrivo_0.1.0_source.tar.gz -C artifacts/source-bundle castrivo
       - uses: actions/upload-artifact@v4
         with:

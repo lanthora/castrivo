@@ -78,8 +78,10 @@ def main():
             for candidate in candidates:
                 result = subprocess.run(['dpkg-query', '-S', str(candidate)],
                                         text=True, capture_output=True)
-                if result.returncode == 0:
-                    packages.add(result.stdout.split(': ', 1)[0])
+                owners = re.findall(r'^([a-z0-9][a-z0-9+.-]*(?::[a-z0-9]+)?): /',
+                                    result.stdout, re.M)
+                if result.returncode == 0 and owners:
+                    packages.update(owners)
                     break
             else:
                 raise RuntimeError(f'Cannot identify native library owner: {library}')
