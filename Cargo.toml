@@ -3,6 +3,7 @@ name = "castrivo"
 version = "0.1.0"
 edition = "2024"
 description = "A desktop video casting receiver"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 anyhow = "1"

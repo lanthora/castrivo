@@ -37,7 +37,7 @@ def system_dylib(name):
     return name.startswith(("/usr/lib/", "/System/Library/"))
 
 
-def macos_libraries(binary, stage):
+def macos_libraries(binary, stage, maximum_version=None):
     require("dylibbundler", "Install it with: brew install dylibbundler")
     libraries = stage / "libraries"
     libraries.mkdir()
@@ -73,7 +73,14 @@ def macos_libraries(binary, stage):
                 "entitlements": str(ROOT / "packaging/entitlements.plist")}
     if versions:
         settings["minimumSystemVersion"] = max(versions, key=lambda v: tuple(map(int, v.split('.'))))
+        if maximum_version and version_tuple(settings["minimumSystemVersion"]) > version_tuple(maximum_version):
+            raise RuntimeError(f"Bundled dependencies require macOS {settings['minimumSystemVersion']}, exceeding target {maximum_version}")
     return files, settings
+
+
+def version_tuple(value):
+    parts = tuple(map(int, value.split('.')))
+    return parts + (0,) * max(0, 3 - len(parts))
 
 
 def dll_imports(path):
@@ -163,10 +170,16 @@ def package(binary, metadata, args, target):
         shutil.copy2(binary, staged_binary)
         config = json.loads((ROOT / "packaging/packager.json").read_text())
         config.update(version=metadata["version"], targetTriple=target, outDir=str(out), binariesDir=str(stage), formats=formats)
-        resources = [{"src": str(ROOT / "README.md"), "target": "README.md"}]
+        resources = [{"src": str(ROOT / name), "target": name}
+                     for name in ["README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"]]
+        if args.notices_dir:
+            resources.append({"src": str(args.notices_dir.resolve()), "target": "third-party-licenses"})
         files = []
         if sys.platform == "darwin":
-            files, config["macos"] = macos_libraries(staged_binary, stage)
+            files, config["macos"] = macos_libraries(staged_binary, stage, args.macos_max_version)
+            native_share = Path(run("pkg-config", "--variable=prefix", "mpv", capture=True)) / "share/castrivo-native"
+            if native_share.is_dir():
+                resources.append({"src": str(native_share), "target": "native-dependencies"})
         elif sys.platform == "win32":
             files = windows_libraries(staged_binary, stage, args.native_dir.copy())
             resources += [{"src": str(path), "target": path.name} for path in files]
@@ -179,7 +192,8 @@ def package(binary, metadata, args, target):
             config["appimage"] = {"libs": libraries}
         info = {"name": "Castrivo", "version": metadata["version"], "target": target,
                 "packager": reported, "nativeLibraries": [p.name for p in files],
-                "licenseReview": "Pending; these are local test packages, not approved public releases."}
+                "license": "GPL-3.0-or-later",
+                "dependencySources": "See the matching dependency-source archive on the GitHub release."}
         if sys.platform == "darwin":
             info["minimumSystemVersion"] = config["macos"].get("minimumSystemVersion")
         manifest = stage / "BUILD-INFO.json"
@@ -225,7 +239,13 @@ def main():
     parser.add_argument("--native-dir", type=Path, action="append", default=[], help="Additional Windows runtime DLL directory")
     parser.add_argument("--out", type=Path, help="Package output directory (default: dist/HOST_TARGET)")
     parser.add_argument("--skip-build", action="store_true", help="Package an existing release binary; caller is responsible for freshness")
+    parser.add_argument("--macos-max-version", help="Reject a macOS package whose executable or bundled libraries exceed this minimum OS version")
+    parser.add_argument("--notices-dir", type=Path, help="Third-party license directory to include in the installer")
     args = parser.parse_args()
+    if args.macos_max_version and (sys.platform != 'darwin' or not args.package):
+        parser.error("--macos-max-version requires --package on macOS")
+    if args.macos_max_version and not re.fullmatch(r'\d+(?:\.\d+){1,2}', args.macos_max_version):
+        parser.error("--macos-max-version must be a version such as 11.0")
     require("cargo", "Install Rust with rustup")
     require("pkg-config", "Install pkg-config and SDL2/libmpv development libraries")
     if (args.format or args.native_dir or args.out or args.skip_build) and not args.package:

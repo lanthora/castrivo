@@ -1,0 +1,62 @@
+{
+  "libass": {
+    "url": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
+    "sha256": "eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959",
+    "archive": "libass.tar.xz"
+  },
+  "libplacebo": {
+    "url": "https://github.com/haasn/libplacebo/archive/refs/tags/v7.349.0.tar.gz",
+    "sha256": "627e32439a0b3d2b90368ead7e919f470ee7446c87cc0f7841bbe319b23aa8b1",
+    "archive": "libplacebo.tar.gz"
+  },
+  "fribidi": {
+    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+    "sha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+    "archive": "fribidi.tar.xz"
+  },
+  "freetype": {
+    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+    "sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
+    "archive": "freetype.tar.xz"
+  },
+  "ffmpeg": {
+    "url": "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz",
+    "sha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+    "archive": "ffmpeg.tar.xz"
+  },
+  "sdl2": {
+    "url": "https://www.libsdl.org/release/SDL2-2.32.8.tar.gz",
+    "sha256": "0ca83e9c9b31e18288c7ec811108e58bac1f1bb5ec6577ad386830eac51c787e",
+    "archive": "sdl2.tar.gz"
+  },
+  "mpv": {
+    "url": "https://github.com/mpv-player/mpv/archive/refs/tags/v0.40.0.tar.gz",
+    "sha256": "10a0f4654f62140a6dd4d380dcf0bbdbdcf6e697556863dc499c296182f081a3",
+    "archive": "mpv.tar.gz"
+  },
+  "harfbuzz": {
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/10.4.0/harfbuzz-10.4.0.tar.xz",
+    "sha256": "480b6d25014169300669aa1fc39fb356c142d5028324ea52b3a27648b9beaad8",
+    "archive": "harfbuzz.tar.xz"
+  },
+  "fast_float": {
+    "url": "https://github.com/fastfloat/fast_float/archive/refs/tags/v6.1.6.tar.gz",
+    "sha256": "4458aae4b0eb55717968edda42987cabf5f7fc737aee8fede87a70035dba9ab0",
+    "archive": "fast_float.tar.gz"
+  },
+  "vulkan_headers": {
+    "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.3.296.tar.gz",
+    "sha256": "e204e0b3c19f622d197df945737f5db913d6621830999b8578d34e80a7c90585",
+    "archive": "vulkan_headers.tar.gz"
+  },
+  "dav1d": {
+    "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.1/dav1d-1.5.1.tar.gz",
+    "sha256": "fa635e2bdb25147b1384007c83e15de44c589582bb3b9a53fc1579cb9d74b695",
+    "archive": "dav1d.tar.gz"
+  },
+  "lua": {
+    "url": "https://www.lua.org/ftp/lua-5.2.4.tar.gz",
+    "sha256": "b9e2e4aad6789b3b63a056d442f7b39f0ecfca3ae0f1fc0ae4e9614401b69f4b",
+    "archive": "lua.tar.gz"
+  }
+}

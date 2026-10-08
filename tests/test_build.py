@@ -11,6 +11,25 @@ spec.loader.exec_module(build)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_macos_versions_compare_with_optional_patch(self):
+        self.assertEqual(build.version_tuple('11.0'), build.version_tuple('11.0.0'))
+        self.assertGreater(build.version_tuple('26.0'), build.version_tuple('11.0'))
+
+    def test_macos_packaging_rejects_dependencies_above_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def fake_run(*command, **kwargs):
+                if command[:2] == ('pkg-config', '--variable=libdir'):
+                    return str(root)
+                if command[0] == 'dylibbundler':
+                    (root / 'libraries/libmpv.dylib').write_bytes(b'library')
+                if command[:2] == ('otool', '-l'):
+                    return 'cmd LC_BUILD_VERSION\n minos 26.0\n sdk 26.5'
+                return ''
+            with patch.object(build, 'require'), patch.object(build, 'run', side_effect=fake_run):
+                with self.assertRaisesRegex(RuntimeError, 'exceeding target 11.0'):
+                    build.macos_libraries(root / 'castrivo', root, '11.0')
+
     def test_macos_dependency_parser_preserves_spaces(self):
         with patch.object(build, 'run', return_value='app:\n\t/opt/Video Libraries/libmpv.dylib (compatibility version 2.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)'):
             self.assertEqual(build.dylib_dependencies(Path('app')), ['/opt/Video Libraries/libmpv.dylib', '/usr/lib/libSystem.B.dylib'])

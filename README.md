@@ -17,9 +17,9 @@ Keep Castrivo open while watching. You can control playback from the casting app
 
 ## Installation
 
-Public downloads are not available yet. To build Castrivo yourself, see [Building from source](docs/building.md).
+Download the Windows, macOS (Apple Silicon), or Linux test release from [GitHub Releases](https://github.com/lanthora/castrivo/releases). To build Castrivo yourself, see [Building from source](docs/building.md).
 
-On macOS, copy `Castrivo.app` to your Applications folder and open it. The current macOS build requires Apple Silicon and macOS 26 or later.
+On macOS, copy `Castrivo.app` to your Applications folder and open it. The macOS 11-targeted build is for Apple Silicon; runtime compatibility on older macOS versions has not yet been verified.
 
 ## Playback
 
@@ -50,3 +50,7 @@ Castrivo plays cast videos; it does not mirror your device's screen. Live videos
 - Reopen the casting menu in your video app.
 
 If a video fails to play, try another video or app. To report a problem, [open an issue](https://github.com/lanthora/castrivo/issues) with your operating system, casting app, and what happened.
+
+## License
+
+GPL-3.0-or-later. [License](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)

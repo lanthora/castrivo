@@ -17,9 +17,9 @@
 
 ## 安装
 
-目前尚未提供公开下载。如需自行构建，请参阅[源码构建说明（英文）](docs/building.md)。
+从 [GitHub Releases](https://github.com/lanthora/castrivo/releases) 下载 Windows、macOS（Apple Silicon）或 Linux 测试版。如需自行构建，请参阅[源码构建说明（英文）](docs/building.md)。
 
-在 macOS 上，将 `Castrivo.app` 放入「应用程序」文件夹后打开。当前 macOS 构建需要 Apple Silicon 芯片和 macOS 26 或更新版本。
+在 macOS 上，将 `Castrivo.app` 放入「应用程序」文件夹后打开。面向 macOS 11 构建的版本仅适用于 Apple Silicon；旧版 macOS 的实际运行兼容性尚未验证。
 
 ## 播放操作
 
@@ -50,3 +50,7 @@ Castrivo 用于播放投屏视频，不支持设备屏幕镜像。直播视频�
 - 重新打开视频应用中的投屏菜单。
 
 如果视频无法播放，可以尝试其他视频或应用。如需反馈问题，请[提交 Issue](https://github.com/lanthora/castrivo/issues)，说明操作系统、投屏应用和遇到的情况。
+
+## 许可证
+
+GPL-3.0-or-later. [许可证全文](LICENSE) · [第三方依赖说明](THIRD-PARTY-NOTICES.md)

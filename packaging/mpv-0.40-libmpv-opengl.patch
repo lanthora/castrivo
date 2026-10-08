@@ -1,0 +1,30 @@
+--- a/meson.build
++++ b/meson.build
+@@ -817,6 +817,9 @@
+                        'AudioUnit', 'AudioToolbox'], required: get_option('coreaudio'))
+ features += {'coreaudio': coreaudio.found()}
+ if features['coreaudio']
++    if not features['cocoa']
++        sources += files('osdep/utils-mac.c')
++    endif
+     dependencies += coreaudio
+     sources += files('audio/out/ao_coreaudio.c',
+                      'audio/out/ao_coreaudio_exclusive.c',
+@@ -1109,7 +1112,7 @@
+ 
+ GL = dependency('', required: false)
+ if darwin
+-    GL = dependency('appleframeworks', modules: 'OpenGL', required: get_option('gl-cocoa'))
++    GL = dependency('appleframeworks', modules: ['OpenGL', 'IOSurface'], required: get_option('gl-cocoa'))
+ elif features['win32-desktop']
+     GL = dependency('GL', required: get_option('gl-win32'))
+ elif features['x11']
+@@ -1117,7 +1120,7 @@
+ endif
+ 
+ gl_cocoa = get_option('gl-cocoa').require(
+-    features['cocoa'] and GL.found() and gl_allowed,
++    (features['cocoa'] or not get_option('cplayer')) and GL.found() and gl_allowed,
+     error_message: 'cocoa and GL were not found!',
+ )
+ features += {'gl-cocoa': gl_cocoa.allowed()}

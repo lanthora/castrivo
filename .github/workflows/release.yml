@@ -1,0 +1,192 @@
+name: Release installers
+
+on:
+  push:
+    branches: ['codex/release-0.1.0']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-gnu
+          - os: ubuntu-22.04
+            platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'Windows'
+        with:
+          components: rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@stable
+        if: runner.os == 'Windows'
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.platform }}
+          cache-on-failure: true
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          HOMEBREW_NO_INSTALL_CLEANUP=1 brew install cmake pkg-config dylibbundler
+      - uses: actions/cache@v4
+        if: runner.os == 'macOS'
+        with:
+          path: artifacts/macos-native
+          key: macos11-native-${{ runner.os }}-${{ hashFiles('scripts/build_macos_native.py', 'packaging/macos-native-sources.json', 'packaging/mpv-0.40-libmpv-opengl.patch') }}
+      - name: Build isolated macOS 11 native SDK
+        if: runner.os == 'macOS'
+        run: |
+          python3 scripts/build_macos_native.py
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PWD/artifacts/macos-native/prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_LIBDIR=$PWD/artifacts/macos-native/prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          if test -f /etc/apt/sources.list.d/ubuntu.sources; then
+            sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          else
+            sed -n 's/^deb /deb-src /p' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/castrivo-sources.list
+          fi
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libsdl2-dev libmpv-dev build-essential libfuse2
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-mpv
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-nsis
+      - name: Install packager (Unix)
+        if: runner.os != 'Windows'
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Install packager (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Build and check application (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 scripts/build.py --check
+          python3 -m unittest discover -s tests -v
+      - name: Build and check application (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python scripts/build.py --check
+          python -m unittest discover -s tests -v
+      - name: Collect native sources (Linux)
+        if: runner.os == 'Linux'
+        run: python3 scripts/collect_release_sources.py --binary target/release/castrivo --out dist/release
+      - name: Collect native sources (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: python scripts/collect_release_sources.py --binary target/release/castrivo.exe --out dist/release
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          python3 scripts/build.py --skip-build --package --format app --macos-max-version 11.0
+          python3 scripts/stage_release.py --platform macos-arm64 --packages dist/aarch64-apple-darwin
+          cp dist/macos-native/castrivo-native-macos-arm64-11.0.tar.gz dist/release/Castrivo_0.1.0_macos-arm64_dependency-sources.tar.gz
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: '1'
+        run: |
+          python3 scripts/build.py --skip-build --package --notices-dir artifacts/release-sources/licenses
+          python3 scripts/stage_release.py --platform linux-x64 --packages dist/x86_64-unknown-linux-gnu
+          chmod +x dist/release/*.AppImage
+          dist/release/*.AppImage --version
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python scripts/build.py --skip-build --package --native-dir "$(cygpath -w /ucrt64/bin)" --notices-dir artifacts/release-sources/licenses
+          python scripts/stage_release.py --platform windows-x64 --packages dist/x86_64-pc-windows-gnu
+          target/release/castrivo.exe --version
+      - name: Create application source bundle
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p artifacts/source-bundle/castrivo/.cargo
+          git archive HEAD | tar -x -C artifacts/source-bundle/castrivo
+          cargo vendor --locked artifacts/source-bundle/castrivo/vendor > artifacts/source-bundle/castrivo/.cargo/config.toml
+          tar -czf dist/release/Castrivo_0.1.0_source.tar.gz -C artifacts/source-bundle castrivo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/release/*
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-diagnostics-${{ matrix.platform }}
+          path: |
+            artifacts/**/*.log
+            dist/**/BUILD-INFO.json
+            target/**/build/**/output
+          if-no-files-found: ignore
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+      - name: Verify version and required assets
+        run: |
+          python3 - <<'PY'
+          import pathlib, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          import os
+          assert os.environ['GITHUB_REF_NAME'] == 'v' + version
+          root = pathlib.Path('dist/release')
+          for name in [f'Castrivo_{version}_windows-x64_setup.exe', f'Castrivo_{version}_macos-arm64.dmg', f'Castrivo_{version}_linux-x64.AppImage', f'Castrivo_{version}_source.tar.gz']:
+              assert (root / name).is_file(), name
+          for platform in ['macos-arm64', 'windows-x64', 'linux-x64']:
+              assert (root / f'Castrivo_{version}_{platform}_dependency-sources.tar.gz').is_file()
+          PY
+          cd dist/release
+          sha256sum * > SHA256SUMS
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag --prerelease --title "Castrivo $GITHUB_REF_NAME" --notes-file docs/releases/v0.1.0.md
