@@ -59,7 +59,11 @@ jobs:
       - name: Build isolated macOS 11 native SDK
         if: runner.os == 'macOS'
         run: |
-          python3 scripts/build_macos_native.py
+          if test '${{ steps.native-cache.outputs.cache-hit }}' = true; then
+            python3 scripts/build_macos_native.py --verify-only
+          else
+            python3 scripts/build_macos_native.py
+          fi
           {
             echo "MACOSX_DEPLOYMENT_TARGET=11.0"
             echo "PKG_CONFIG_PATH=$PWD/artifacts/macos-native/prefix/lib/pkgconfig"
