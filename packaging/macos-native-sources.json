@@ -50,9 +50,9 @@
     "archive": "vulkan_headers.tar.gz"
   },
   "dav1d": {
-    "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.1/dav1d-1.5.1.tar.gz",
-    "sha256": "fa635e2bdb25147b1384007c83e15de44c589582bb3b9a53fc1579cb9d74b695",
-    "archive": "dav1d.tar.gz"
+    "url": "https://download.videolan.org/pub/videolan/dav1d/1.5.1/dav1d-1.5.1.tar.xz",
+    "sha256": "401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21",
+    "archive": "dav1d.tar.xz"
   },
   "lua": {
     "url": "https://www.lua.org/ftp/lua-5.2.4.tar.gz",
