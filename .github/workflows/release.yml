@@ -152,7 +152,7 @@ jobs:
         if: runner.os == 'Linux'
         with:
           path: artifacts/release-sources/sources
-          key: native-downloads-v1-linux-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/prepare_appimage_runtime.py') }}-${{ github.run_id }}
+          key: native-downloads-v1-linux-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/prepare_appimage_runtime.py') }}-${{ steps.unix-native.outputs.digest }}
           restore-keys: native-downloads-v1-linux-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/prepare_appimage_runtime.py') }}-
       - name: Build and check application (Unix)
         if: runner.os != 'Windows'
