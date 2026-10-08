@@ -6,7 +6,7 @@ Only version tags publish a GitHub Release. A manual run on main also warms cach
 - Rust dependencies are keyed by compiler, Cargo inputs, platform and installed native packages.
 - cargo-packager 0.11.8 is installed in a separate cache per runner and target.
 - The macOS 11 SDK caches its completed prefix and source archive rather than intermediate builds. Its key includes pinned source versions, checksums, build recipe and patch. Restored libraries are relocated and signed; packaging still verifies library architecture and minimum system versions.
-- Windows dependency sources and notices are reused only with identical installed package versions, collector, native library discovery code, Rust dependency lockfile and application sources.
+- Windows dependency sources and notices are reused only with identical installed package versions, collector, native library discovery code, actual DLL dependency closure.
 - Linux source downloads are retained across package updates. apt still resolves sources for the installed package versions. Partial downloads are never treated as complete files; pinned AppImage dependencies are checksum checked.
 
 Source bundle filenames use the current Cargo version, even when cached content is reused.

@@ -141,14 +141,6 @@ jobs:
           artifacts/packager/bin/cargo-packager.exe --version
           cygpath -w "$PWD/artifacts/packager/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
-        id: windows-sources
-        if: runner.os == 'Windows'
-        with:
-          path: |
-            artifacts/release-sources/licenses
-            artifacts/release-sources/dependency-sources.tar.gz
-          key: native-sources-v1-${{ matrix.platform }}-${{ steps.windows-native.outputs.digest }}-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/build.py', 'Cargo.lock', 'src/**') }}
-      - uses: actions/cache@v4
         if: runner.os == 'Linux'
         with:
           path: artifacts/release-sources/sources
@@ -165,6 +157,33 @@ jobs:
         run: |
           python scripts/build.py --check
           python -m unittest discover -s tests -v
+      - name: Fingerprint Windows library closure
+        id: windows-closure
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python - <<'PYTHON'
+          import hashlib, os, pathlib, subprocess, sys
+          sys.path.insert(0, 'scripts')
+          from build import windows_libraries
+          prefix = pathlib.Path(subprocess.check_output(['pkg-config', '--variable=prefix', 'mpv'], text=True).strip())
+          stage = pathlib.Path('artifacts/native-fingerprint')
+          stage.mkdir(parents=True, exist_ok=True)
+          files = windows_libraries(pathlib.Path('target/release/castrivo.exe').resolve(), stage, [prefix / 'bin'])
+          packages = subprocess.check_output(['pacman', '-Q'])
+          names = '\n'.join(sorted(file.name.lower() for file in files)).encode()
+          digest = hashlib.sha256(packages + names).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'digest={digest}\n')
+          PYTHON
+      - uses: actions/cache@v4
+        id: windows-sources
+        if: runner.os == 'Windows'
+        with:
+          path: |
+            artifacts/release-sources/licenses
+            artifacts/release-sources/dependency-sources.tar.gz
+          key: native-sources-v1-${{ matrix.platform }}-${{ steps.windows-closure.outputs.digest }}-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/build.py') }}
       - name: Collect native sources (Linux)
         if: runner.os == 'Linux'
         run: python3 scripts/collect_release_sources.py --binary target/release/castrivo --out dist/release --upgrade-native
