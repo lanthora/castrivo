@@ -1,0 +1,54 @@
+name: Keep only release installers
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tidy-release.yml']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to tidy
+        default: v0.1.0
+        required: true
+permissions:
+  contents: write
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || 'v0.1.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve additional attachments before removing them
+        run: |
+          mkdir -p preserved
+          gh release view "$RELEASE_TAG" --json assets > assets.json
+          python3 - <<'PY'
+          import json, os, subprocess
+          assets = json.load(open('assets.json'))['assets']
+          keep = [a for a in assets if a['name'].endswith(('.AppImage', '.dmg', '_setup.exe'))]
+          assert len(keep) == 3, 'Expected exactly three installers'
+          removed = [a['name'] for a in assets if a not in keep]
+          json.dump(removed, open('remove.json', 'w'))
+          for name in removed:
+              subprocess.run(['gh', 'release', 'download', os.environ['RELEASE_TAG'], '--pattern', name, '--dir', 'preserved'], check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preserved-release-attachments-${{ inputs.tag || 'v0.1.0' }}
+          path: preserved/*
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 90
+      - name: Remove extra attachments and update release notes
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          for name in json.load(open('remove.json')):
+              subprocess.run(['gh', 'release', 'delete-asset', os.environ['RELEASE_TAG'], name, '--yes'], check=True)
+          PY
+          if test "$RELEASE_TAG" = v0.1.0; then
+            gh release edit "$RELEASE_TAG" --notes-file docs/releases/v0.1.0.md
+          fi
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'

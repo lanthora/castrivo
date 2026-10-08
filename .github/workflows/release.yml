@@ -246,7 +246,18 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.platform }}
-          path: dist/release/*
+          path: |
+            dist/release/*.AppImage
+            dist/release/*.dmg
+            dist/release/*_setup.exe
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-sources-${{ matrix.platform }}
+          path: |
+            dist/release/*.tar.gz
+            dist/release/*_BUILD-INFO.json
           if-no-files-found: error
           compression-level: 0
       - uses: actions/upload-artifact@v4
@@ -269,7 +280,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          pattern: release-!(sources-*)
           path: dist/release
           merge-multiple: true
       - name: Verify version and required assets
@@ -280,15 +291,12 @@ jobs:
           import os
           assert os.environ['GITHUB_REF_NAME'] == 'v' + version
           root = pathlib.Path('dist/release')
-          for name in [f'Castrivo_{version}_windows-x64_setup.exe', f'Castrivo_{version}_macos-arm64.dmg', f'Castrivo_{version}_linux-x64.AppImage', f'Castrivo_{version}_source.tar.gz']:
+          for name in [f'Castrivo_{version}_windows-x64_setup.exe', f'Castrivo_{version}_macos-arm64.dmg', f'Castrivo_{version}_linux-x64.AppImage']:
               assert (root / name).is_file(), name
-          for platform in ['macos-arm64', 'windows-x64', 'linux-x64']:
-              assert (root / f'Castrivo_{version}_{platform}_dependency-sources.tar.gz').is_file()
+          assert len(list(root.iterdir())) == 3, 'Only three installers may be published'
           PY
-          cd dist/release
-          sha256sum ./* > SHA256SUMS
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag --prerelease --title "Castrivo $GITHUB_REF_NAME" --notes-file docs/releases/v0.1.0.md
+          gh release create "$GITHUB_REF_NAME" dist/release/*.AppImage dist/release/*.dmg dist/release/*_setup.exe --verify-tag --prerelease --title "Castrivo $GITHUB_REF_NAME" --notes-file docs/releases/v0.1.0.md
