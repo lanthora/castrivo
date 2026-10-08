@@ -30,6 +30,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--upgrade-native', action='store_true',
+                        help='Update Linux runtime packages on an ephemeral CI builder before collecting matching sources')
     args = parser.parse_args()
     work = ROOT / 'artifacts/release-sources'
     sources = work / 'sources'
@@ -85,6 +87,9 @@ def main():
                     break
             else:
                 raise RuntimeError(f'Cannot identify native library owner: {library}')
+        if args.upgrade_native:
+            subprocess.run(['sudo', 'apt-get', 'install', '--only-upgrade', '-y',
+                            *sorted(packages)], check=True)
         source_versions = set()
         for package in sorted(packages):
             source, version = output('dpkg-query', '-W', '-f=${source:Package} ${source:Version}', package).split()
