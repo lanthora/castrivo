@@ -55,7 +55,7 @@ For an application-only macOS build:
 python3 scripts/build.py --package --format app
 ```
 
-Use `--out PATH` for another output directory. Local macOS packages are ad-hoc signed, without Apple notarization. The original Homebrew-based Apple Silicon library bundle requires macOS 26 or later; use the isolated SDK below to build for older systems. Clean-machine testing and dependency license review remain pending; these packages are for local testing.
+Use `--out PATH` for another output directory. Local macOS packages are ad-hoc signed, without Apple notarization. The original Homebrew-based Apple Silicon library bundle requires macOS 26 or later; use the isolated SDK below to build for older systems. The release workflow performs package startup checks; real casting on Windows/Linux and older macOS still needs user testing.
 
 ### macOS 11 ARM64 dependency SDK
 
@@ -101,8 +101,7 @@ allows macOS OpenGL/VideoToolbox in a library-only build without mpv's Cocoa
 application or Swift runtime; Castrivo owns the SDL window and GL context.
 Lua is statically linked so Castrivo can retain its existing OSC/ytdl options.
 This is a deployment target, not proof of macOS 11 runtime
-compatibility; old-system playback testing and distribution license review are
-still required.
+compatibility; old-system playback testing is still required.
 
 ## Checks
 
@@ -129,4 +128,4 @@ Use `--mpv-log /absolute/path/mpv.log` only when detailed playback diagnostics a
 
 ## License
 
-A project license has not yet been selected. Review the complete native dependency license chain before distributing packages.
+Castrivo uses GPL-3.0-or-later. See [LICENSE](../LICENSE) and [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Release assets include vendored Rust sources and the matching native dependency sources, build recipes and license notices.
