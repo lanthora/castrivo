@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,9 +21,12 @@ def output(*cmd):
 
 
 def download(url, path):
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
     print('Download:', url, flush=True)
-    with urllib.request.urlopen(url, timeout=180) as response, path.open('wb') as stream:
+    with urllib.request.urlopen(url, timeout=180) as response, path.with_suffix(path.suffix + '.part').open('wb') as stream:
         shutil.copyfileobj(response, stream)
+    path.with_suffix(path.suffix + '.part').replace(path)
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -111,10 +115,13 @@ def main():
     (work / 'DEPENDENCIES.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (notices / 'DEPENDENCIES.json').write_text(json.dumps(manifest, indent=2) + '\n')
     args.out.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(args.out / f'Castrivo_0.1.0_{label}_dependency-sources.tar.gz', 'w:gz') as bundle:
+    version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
+    archive = work / 'dependency-sources.tar.gz'
+    with tarfile.open(archive, 'w:gz') as bundle:
         bundle.add(sources, arcname='sources')
         bundle.add(notices, arcname='licenses')
         bundle.add(work / 'DEPENDENCIES.json', arcname='DEPENDENCIES.json')
+    shutil.copy2(archive, args.out / f'Castrivo_{version}_{label}_dependency-sources.tar.gz')
     print('License directory:', notices, flush=True)
 
 

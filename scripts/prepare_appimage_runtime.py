@@ -15,6 +15,10 @@ def prepare(work):
     runtime = work / 'runtime-x86_64'
     url = 'https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64'
     def fetch(url, destination, digest=None):
+        if digest and destination.is_file():
+            data = destination.read_bytes()
+            if hashlib.sha256(data).hexdigest() == digest:
+                return digest
         data = urllib.request.urlopen(url, timeout=180).read()
         checksum = hashlib.sha256(data).hexdigest()
         if digest and checksum != digest:

@@ -8,6 +8,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: checks-linux
+          cache-workspace-crates: true
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libsdl2-dev libmpv-dev
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings

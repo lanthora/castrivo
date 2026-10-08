@@ -2,7 +2,7 @@ name: Release installers
 
 on:
   push:
-    branches: ['codex/release-0.1.0']
+    branches: ['main', 'codex/release-0.1.0']
     tags: ['v*']
   workflow_dispatch:
 
@@ -41,10 +41,6 @@ jobs:
         with:
           toolchain: stable-x86_64-pc-windows-gnu
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: release-${{ matrix.platform }}
-          cache-on-failure: true
       - name: Install macOS build tools
         if: runner.os == 'macOS'
         run: |
@@ -54,13 +50,15 @@ jobs:
         id: native-cache
         if: runner.os == 'macOS'
         with:
-          path: artifacts/macos-native
-          key: macos11-native-${{ runner.os }}-${{ hashFiles('scripts/build_macos_native.py', 'packaging/macos-native-sources.json', 'packaging/mpv-0.40-libmpv-opengl.patch') }}
+          path: |
+            artifacts/macos-native/prefix
+            dist/macos-native/castrivo-native-macos-arm64-11.0.tar.gz
+          key: macos11-sdk-v2-${{ runner.os }}-${{ hashFiles('scripts/build_macos_native.py', 'packaging/macos-native-sources.json', 'packaging/mpv-0.40-libmpv-opengl.patch') }}
       - name: Build isolated macOS 11 native SDK
         if: runner.os == 'macOS'
         run: |
           if test '${{ steps.native-cache.outputs.cache-hit }}' = true; then
-            python3 scripts/build_macos_native.py --verify-only
+            python3 scripts/relocate_macos_native.py artifacts/macos-native/prefix
           else
             python3 scripts/build_macos_native.py
           fi
@@ -72,7 +70,9 @@ jobs:
       - uses: actions/cache/save@v4
         if: runner.os == 'macOS' && steps.native-cache.outputs.cache-hit != 'true'
         with:
-          path: artifacts/macos-native
+          path: |
+            artifacts/macos-native/prefix
+            dist/macos-native/castrivo-native-macos-arm64-11.0.tar.gz
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -99,13 +99,61 @@ jobs:
             mingw-w64-ucrt-x86_64-mpv
             mingw-w64-ucrt-x86_64-SDL2
             mingw-w64-ucrt-x86_64-nsis
+      - name: Fingerprint native build environment (Unix)
+        id: unix-native
+        if: runner.os != 'Windows'
+        run: |
+          if test "$RUNNER_OS" = Linux; then
+            digest=$(dpkg-query -W | sha256sum | cut -d ' ' -f 1)
+          else
+            digest=$(shasum -a 256 packaging/macos-native-sources.json scripts/build_macos_native.py packaging/mpv-0.40-libmpv-opengl.patch | shasum -a 256 | cut -d ' ' -f 1)
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Fingerprint Windows native packages
+        id: windows-native
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: echo "digest=$(pacman -Q | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-v2-${{ matrix.platform }}-${{ steps.unix-native.outputs.digest }}${{ steps.windows-native.outputs.digest }}
+          cache-on-failure: true
+      - uses: actions/cache@v4
+        id: packager-cache
+        with:
+          path: artifacts/packager
+          key: packager-0.11.8-v1-${{ matrix.os }}-${{ matrix.target }}
       - name: Install packager (Unix)
         if: runner.os != 'Windows'
-        run: cargo install cargo-packager --version 0.11.8 --locked
+        run: |
+          if test '${{ steps.packager-cache.outputs.cache-hit }}' != true; then
+            cargo install cargo-packager --version 0.11.8 --locked --root artifacts/packager
+          fi
+          artifacts/packager/bin/cargo-packager --version
+          echo "$PWD/artifacts/packager/bin" >> "$GITHUB_PATH"
       - name: Install packager (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: cargo install cargo-packager --version 0.11.8 --locked
+        run: |
+          if test '${{ steps.packager-cache.outputs.cache-hit }}' != true; then
+            cargo install cargo-packager --version 0.11.8 --locked --root artifacts/packager
+          fi
+          artifacts/packager/bin/cargo-packager.exe --version
+          cygpath -w "$PWD/artifacts/packager/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        id: windows-sources
+        if: runner.os == 'Windows'
+        with:
+          path: |
+            artifacts/release-sources/licenses
+            artifacts/release-sources/dependency-sources.tar.gz
+          key: native-sources-v1-${{ matrix.platform }}-${{ steps.windows-native.outputs.digest }}-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/build.py', 'Cargo.lock', 'src/**') }}
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        with:
+          path: artifacts/release-sources/sources
+          key: native-downloads-v1-linux-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/prepare_appimage_runtime.py') }}-${{ github.run_id }}
+          restore-keys: native-downloads-v1-linux-${{ hashFiles('scripts/collect_release_sources.py', 'scripts/prepare_appimage_runtime.py') }}-
       - name: Build and check application (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -121,15 +169,21 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 scripts/collect_release_sources.py --binary target/release/castrivo --out dist/release --upgrade-native
       - name: Collect native sources (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.windows-sources.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: python scripts/collect_release_sources.py --binary target/release/castrivo.exe --out dist/release
+      - name: Stage cached Windows dependency sources
+        if: runner.os == 'Windows' && steps.windows-sources.outputs.cache-hit == 'true'
+        shell: msys2 {0}
+        run: |
+          python -c "import pathlib, shutil, tomllib; v=tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']; pathlib.Path('dist/release').mkdir(parents=True, exist_ok=True); shutil.copy2('artifacts/release-sources/dependency-sources.tar.gz', f'dist/release/Castrivo_{v}_windows-x64_dependency-sources.tar.gz')"
       - name: Package macOS
         if: runner.os == 'macOS'
         run: |
           python3 scripts/build.py --skip-build --package --format app --macos-max-version 11.0
           python3 scripts/stage_release.py --platform macos-arm64 --packages dist/aarch64-apple-darwin
-          cp dist/macos-native/castrivo-native-macos-arm64-11.0.tar.gz dist/release/Castrivo_0.1.0_macos-arm64_dependency-sources.tar.gz
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")
+          cp dist/macos-native/castrivo-native-macos-arm64-11.0.tar.gz "dist/release/Castrivo_${version}_macos-arm64_dependency-sources.tar.gz"
       - name: Package Linux
         if: runner.os == 'Linux'
         env:
@@ -168,7 +222,8 @@ jobs:
           pushd artifacts/source-bundle/castrivo
           cargo vendor --locked vendor > .cargo/config.toml
           popd
-          tar -czf dist/release/Castrivo_0.1.0_source.tar.gz -C artifacts/source-bundle castrivo
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")
+          tar -czf "dist/release/Castrivo_${version}_source.tar.gz" -C artifacts/source-bundle castrivo
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.platform }}
