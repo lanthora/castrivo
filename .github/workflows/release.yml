@@ -59,9 +59,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           python3 scripts/build_macos_native.py
-          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_PATH=$PWD/artifacts/macos-native/prefix/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_LIBDIR=$PWD/artifacts/macos-native/prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+          {
+            echo "MACOSX_DEPLOYMENT_TARGET=11.0"
+            echo "PKG_CONFIG_PATH=$PWD/artifacts/macos-native/prefix/lib/pkgconfig"
+            echo "PKG_CONFIG_LIBDIR=$PWD/artifacts/macos-native/prefix/lib/pkgconfig"
+          } >> "$GITHUB_ENV"
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -126,7 +128,8 @@ jobs:
           python3 scripts/build.py --skip-build --package --notices-dir artifacts/release-sources/licenses
           python3 scripts/stage_release.py --platform linux-x64 --packages dist/x86_64-unknown-linux-gnu
           chmod +x dist/release/*.AppImage
-          dist/release/*.AppImage --version
+          images=(dist/release/*.AppImage)
+          "${images[0]}" --version
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -134,6 +137,17 @@ jobs:
           python scripts/build.py --skip-build --package --native-dir "$(cygpath -w /ucrt64/bin)" --notices-dir artifacts/release-sources/licenses
           python scripts/stage_release.py --platform windows-x64 --packages dist/x86_64-pc-windows-gnu
           target/release/castrivo.exe --version
+      - name: Smoke test installed Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'Castrivo-install-test'
+          $installer = (Get-ChildItem dist/release/*_setup.exe).FullName
+          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $env:PATH = "$env:SystemRoot;$env:SystemRoot\System32"
+          & "$destination\castrivo.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Installed application failed: $LASTEXITCODE" }
       - name: Create application source bundle
         if: runner.os == 'Linux'
         run: |
@@ -184,7 +198,7 @@ jobs:
               assert (root / f'Castrivo_{version}_{platform}_dependency-sources.tar.gz').is_file()
           PY
           cd dist/release
-          sha256sum * > SHA256SUMS
+          sha256sum ./* > SHA256SUMS
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
